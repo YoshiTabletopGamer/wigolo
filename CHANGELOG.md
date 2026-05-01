@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.0.1 — 2026-05-01
+
+### FIX: `fetch` returns full markdown by default
+- Single-URL `fetch` now defaults `include_full_markdown: true`. Previous v1.0.0
+  default of `false` produced empty `markdown` for callers that didn't opt in,
+  matching multi-result tools where evidence-only is the right default. `fetch`
+  is single-result and should return the body. Pass `include_full_markdown: false`
+  to opt out and get evidence-only.
+- Multi-result tools (`search`, `research`, `find_similar`, `crawl`, `agent`)
+  unchanged — still default to evidence-only.
+
+### FIX: `mode: 'fast'` skips evidence + link validation
+- Fast mode now skips `applyEvidenceDefault` (passage extraction + ONNX
+  passage-rerank) and `validateLinks` (HEAD-request gauntlet). Evidence
+  extraction was warming the reranker model on every fast call, costing
+  multiple seconds. Fast mode is now shape-only — raw engine results, no
+  post-processing. Use `balanced` or `deep` to get evidence excerpts.
+
 ## v1.0.0 — 2026-05-01
 
 ### NEW: mode parameter on search and fetch

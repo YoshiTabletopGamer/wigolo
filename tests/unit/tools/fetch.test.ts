@@ -620,20 +620,10 @@ describe('handleFetch --- evidence shape', () => {
     expect(ev.source_span.end).toBeGreaterThan(ev.source_span.start);
   });
 
-  it('default response strips full markdown body', async () => {
+  it('default response preserves full markdown body alongside evidence', async () => {
     vi.mocked(extractContent).mockResolvedValue(makeExtraction({ markdown: longMarkdown }));
     const router = mockRouter();
     const input: FetchInput = { url: 'https://example.com' };
-
-    const result = await handleFetch(input, router);
-
-    expect(result.markdown).toBe('');
-  });
-
-  it('include_full_markdown=true preserves the full markdown body', async () => {
-    vi.mocked(extractContent).mockResolvedValue(makeExtraction({ markdown: longMarkdown }));
-    const router = mockRouter();
-    const input: FetchInput = { url: 'https://example.com', include_full_markdown: true };
 
     const result = await handleFetch(input, router);
 
@@ -641,7 +631,17 @@ describe('handleFetch --- evidence shape', () => {
     expect(result.evidence).toBeDefined();
   });
 
-  it('cached response also emits evidence and strips markdown by default', async () => {
+  it('include_full_markdown=false strips the full markdown body', async () => {
+    vi.mocked(extractContent).mockResolvedValue(makeExtraction({ markdown: longMarkdown }));
+    const router = mockRouter();
+    const input: FetchInput = { url: 'https://example.com', include_full_markdown: false };
+
+    const result = await handleFetch(input, router);
+
+    expect(result.markdown).toBe('');
+  });
+
+  it('cached response emits evidence and preserves markdown by default', async () => {
     const cached = makeCached({ markdown: longMarkdown });
     vi.mocked(getCachedContent).mockReturnValue(cached);
     vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
@@ -652,7 +652,7 @@ describe('handleFetch --- evidence shape', () => {
     const result = await handleFetch(input, router);
 
     expect(result.cached).toBe(true);
-    expect(result.markdown).toBe('');
+    expect(result.markdown).toBe(longMarkdown);
     expect(result.evidence).toBeDefined();
     expect(result.evidence![0].citation_id).toMatch(/^[a-f0-9]{12}$/);
   });

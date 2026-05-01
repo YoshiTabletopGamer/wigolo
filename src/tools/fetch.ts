@@ -21,7 +21,7 @@ async function attachEvidence(
   markdown: string,
 ): Promise<void> {
   if (!markdown) return;
-  const includeFull = input.include_full_markdown ?? false;
+  const includeFull = input.include_full_markdown ?? true;
   const maxTokensOut = input.max_tokens_out ?? DEFAULT_MAX_TOKENS_OUT;
   const evidence = await buildEvidenceFromMarkdown(
     output.title || output.url,

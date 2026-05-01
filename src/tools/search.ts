@@ -145,7 +145,7 @@ export async function handleSearch(
       if (warning) output.warning = warning;
       if ((input.format === 'answer' || input.format === 'stream_answer') && output.results.length > 0) {
         await applyAnswerSynthesis(input, output, output.results, maxTotalChars, samplingServer, streamProgress);
-      } else if (output.results.length > 0) {
+      } else if (output.results.length > 0 && mode !== 'fast') {
         await applyEvidenceDefault(input, output, output.results, displayQuery);
       }
       return output;
@@ -205,7 +205,7 @@ export async function handleSearch(
 
     const intentString = synthesizeIntent(normalizedQueries);
     merged = await rerankResults(intentString, merged, { skip: mode === 'fast' });
-    merged = await validateLinks(merged);
+    if (mode !== 'fast') merged = await validateLinks(merged);
     merged = merged.slice(0, maxResults);
 
     const results: SearchResultItem[] = merged.map(m => ({
@@ -253,7 +253,7 @@ export async function handleSearch(
     if (warning) output.warning = warning;
     if ((input.format === 'answer' || input.format === 'stream_answer') && results.length > 0) {
       await applyAnswerSynthesis(input, output, results, maxTotalChars, samplingServer, streamProgress);
-    } else if (results.length > 0) {
+    } else if (results.length > 0 && mode !== 'fast') {
       await applyEvidenceDefault(input, output, results, displayQuery);
     }
     return output;
@@ -287,7 +287,7 @@ export async function handleSearch(
     if (warning) output.warning = warning;
     if ((input.format === 'answer' || input.format === 'stream_answer') && output.results.length > 0) {
       await applyAnswerSynthesis(input, output, output.results, maxTotalChars, samplingServer, streamProgress);
-    } else if (output.results.length > 0) {
+    } else if (output.results.length > 0 && mode !== 'fast') {
       await applyEvidenceDefault(input, output, output.results, queryStr);
     }
     return output;
@@ -369,7 +369,7 @@ export async function handleSearch(
   });
 
   merged = await rerankResults(queryStr, merged, { skip: mode === 'fast' });
-  merged = await validateLinks(merged);
+  if (mode !== 'fast') merged = await validateLinks(merged);
 
   merged = merged.slice(0, maxResults);
 
@@ -416,7 +416,7 @@ export async function handleSearch(
   if (warning) output.warning = warning;
   if ((input.format === 'answer' || input.format === 'stream_answer') && results.length > 0) {
     await applyAnswerSynthesis(input, output, results, maxTotalChars, samplingServer, streamProgress);
-  } else if (results.length > 0) {
+  } else if (results.length > 0 && mode !== 'fast') {
     await applyEvidenceDefault(input, output, results, queryStr);
   }
   return output;
