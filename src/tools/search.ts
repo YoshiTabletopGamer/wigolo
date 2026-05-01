@@ -11,12 +11,13 @@ import type { SamplingCapableServer } from '../search/sampling.js';
 import { synthesizeAnswer, buildStructuredFallback } from '../search/answer-synthesis.js';
 import { extractHighlights } from '../search/highlights.js';
 import { applyEvidenceDefault } from '../search/evidence.js';
-import { normalizeQueries, fanOutSearch, synthesizeIntent } from '../search/multi-query.js';
+import { normalizeQueries, fanOutSearch, synthesizeIntent, expandQueryHeuristic } from '../search/multi-query.js';
 import { extractContent } from '../extraction/pipeline.js';
 import { truncateSmartly } from '../search/truncate.js';
 import { cacheSearchResults, getCachedSearchResults, cacheContent } from '../cache/store.js';
 import { getEmbeddingService } from '../embedding/embed.js';
 import { getConfig } from '../config.js';
+import { resolveMode } from '../util/mode.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('search');
@@ -25,6 +26,7 @@ const DEFAULT_MAX_RESULTS = 5;
 const MAX_RESULTS_CAP = 20;
 const DEFAULT_CONTENT_MAX_CHARS = 30000;
 const DEFAULT_MAX_TOTAL_CHARS = 50000;
+const TOP_K_DEEP = 5;
 
 export async function handleSearch(
   input: SearchInput,
@@ -34,6 +36,7 @@ export async function handleSearch(
   samplingServer?: SamplingCapableServer,
   onProgress?: ProgressCallback,
 ): Promise<SearchOutput> {
+  const mode = resolveMode(input.mode);
   const start = Date.now();
   const config = getConfig();
 
@@ -63,7 +66,10 @@ export async function handleSearch(
   }
 
   const maxResults = Math.min(input.max_results ?? DEFAULT_MAX_RESULTS, MAX_RESULTS_CAP);
-  const includeContent = input.include_content ?? true;
+  const includeContent = mode === 'deep' ? true : (input.include_content ?? true);
+  const deepFetchCap = mode === 'deep'
+    ? Math.min(input.max_results ?? 10, TOP_K_DEEP)
+    : undefined;
   const contentMaxChars = input.content_max_chars ?? DEFAULT_CONTENT_MAX_CHARS;
   const maxContentChars = input.max_content_chars;
   const maxTotalChars = input.max_total_chars ?? DEFAULT_MAX_TOTAL_CHARS;
@@ -81,11 +87,18 @@ export async function handleSearch(
     }
   };
 
-  const isMultiQuery = Array.isArray(input.query);
+  let normalizedQuery: string | string[] = input.query;
+  let deepAutoExpanded = false;
+  if (mode === 'deep' && typeof normalizedQuery === 'string') {
+    normalizedQuery = expandQueryHeuristic(normalizedQuery);
+    deepAutoExpanded = true;
+  }
+
+  const isMultiQuery = Array.isArray(normalizedQuery);
 
   // --- Multi-query path ---
   if (isMultiQuery) {
-    const normalizedQueries = normalizeQueries(input.query as string[]);
+    const normalizedQueries = normalizeQueries(normalizedQuery as string[]);
 
     if (normalizedQueries.length === 0) {
       const output: SearchOutput = {
@@ -101,14 +114,28 @@ export async function handleSearch(
       return output;
     }
 
-    const displayQuery = normalizedQueries[0];
+    const displayQuery = deepAutoExpanded && typeof input.query === 'string'
+      ? input.query
+      : normalizedQueries[0];
     const cacheKey = normalizedQueries.join(' | ');
 
-    const cached = input.force_refresh ? null : getCachedSearchResults(cacheKey);
+    const staleMaxSeconds = mode === 'fast' ? config.fastStaleMaxHours * 3600 : 0;
+    const cached = input.force_refresh
+      ? null
+      : getCachedSearchResults(cacheKey, { staleMaxSeconds });
     if (cached && !includeContent) {
-      log.info('serving multi-query search results from cache', { queries: normalizedQueries });
+      log.info('serving multi-query search results from cache', {
+        queries: normalizedQueries,
+        stale: cached.stale ?? false,
+      });
+      const stamped: SearchResultItem[] = cached.results.slice(0, maxResults).map(r => ({
+        ...r,
+        cached: true,
+        cached_at: cached.searched_at,
+        ...(cached.stale ? { stale: true } : {}),
+      }));
       const output: SearchOutput = {
-        results: cached.results.slice(0, maxResults),
+        results: stamped,
         query: displayQuery,
         engines_used: cached.engines_used,
         total_time_ms: Date.now() - start,
@@ -137,7 +164,7 @@ export async function handleSearch(
 
     const { results: rawResults, enginesUsed, errors } = await fanOutSearch(
       normalizedQueries,
-      activeEngines,
+      mode === 'fast' ? activeEngines.slice(0, 1) : activeEngines,
       {
         maxResults,
         timeRange: input.time_range,
@@ -177,7 +204,7 @@ export async function handleSearch(
     });
 
     const intentString = synthesizeIntent(normalizedQueries);
-    merged = await rerankResults(intentString, merged);
+    merged = await rerankResults(intentString, merged, { skip: mode === 'fast' });
     merged = await validateLinks(merged);
     merged = merged.slice(0, maxResults);
 
@@ -202,6 +229,7 @@ export async function handleSearch(
         fetchTimeoutMs,
         totalDeadline: start + totalTimeoutMs,
         forceRefresh: input.force_refresh ?? false,
+        maxFetches: deepFetchCap,
       });
       fetchElapsed = Date.now() - fetchStart;
     }
@@ -234,11 +262,23 @@ export async function handleSearch(
   // --- Single-query path (unchanged from v2) ---
   const queryStr = input.query as string;
 
-  const cached = input.force_refresh ? null : getCachedSearchResults(queryStr);
+  const staleMaxSeconds = mode === 'fast' ? config.fastStaleMaxHours * 3600 : 0;
+  const cached = input.force_refresh
+    ? null
+    : getCachedSearchResults(queryStr, { staleMaxSeconds });
   if (cached && !includeContent) {
-    log.info('serving search results from cache', { query: queryStr });
+    log.info('serving search results from cache', {
+      query: queryStr,
+      stale: cached.stale ?? false,
+    });
+    const stamped: SearchResultItem[] = cached.results.slice(0, maxResults).map(r => ({
+      ...r,
+      cached: true,
+      cached_at: cached.searched_at,
+      ...(cached.stale ? { stale: true } : {}),
+    }));
     const output: SearchOutput = {
-      results: cached.results.slice(0, maxResults),
+      results: stamped,
       query: queryStr,
       engines_used: cached.engines_used,
       total_time_ms: Date.now() - start,
@@ -265,7 +305,9 @@ export async function handleSearch(
   const subQueries = decomposeQuery(queryStr);
   log.debug('query decomposition', { original: queryStr, parts: subQueries.length });
 
-  await emit(1, 5, `Running ${subQueries.length} search queries across ${activeEngines.length} engines...`);
+  const effectiveEngines = mode === 'fast' ? activeEngines.slice(0, 1) : activeEngines;
+
+  await emit(1, 5, `Running ${subQueries.length} search queries across ${effectiveEngines.length} engines...`);
 
   const allRaw: RawSearchResult[] = [];
   const enginesUsed = new Set<string>();
@@ -274,7 +316,7 @@ export async function handleSearch(
   const hasFilterAttrition = !!(input.include_domains?.length || input.exclude_domains?.length);
   const overfetchFactor = hasFilterAttrition ? 3 : 2;
 
-  const searchPromises = activeEngines.flatMap(engine =>
+  const searchPromises = effectiveEngines.flatMap(engine =>
     subQueries.map(async (query) => {
       try {
         const results = await engine.search(query, {
@@ -326,7 +368,7 @@ export async function handleSearch(
     category: input.category,
   });
 
-  merged = await rerankResults(queryStr, merged);
+  merged = await rerankResults(queryStr, merged, { skip: mode === 'fast' });
   merged = await validateLinks(merged);
 
   merged = merged.slice(0, maxResults);
@@ -481,6 +523,7 @@ interface FetchContext {
   fetchTimeoutMs: number;
   totalDeadline: number;
   forceRefresh: boolean;
+  maxFetches?: number;
 }
 
 // Parallel fetch all URLs; then apply total-char budget in relevance (input) order.
@@ -489,7 +532,10 @@ async function fetchContentForResults(
   router: SmartRouter,
   ctx: FetchContext,
 ): Promise<void> {
-  const fetches = results.map(async (result): Promise<{ content?: string; error?: string }> => {
+  const fetchTargets = ctx.maxFetches !== undefined
+    ? results.slice(0, ctx.maxFetches)
+    : results;
+  const fetches = fetchTargets.map(async (result): Promise<{ content?: string; error?: string }> => {
     if (Date.now() >= ctx.totalDeadline) {
       return { error: 'total_timeout' };
     }
@@ -537,8 +583,8 @@ async function fetchContentForResults(
   const fetched = await Promise.all(fetches);
 
   let totalCharsUsed = 0;
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
+  for (let i = 0; i < fetchTargets.length; i++) {
+    const result = fetchTargets[i];
     const { content, error } = fetched[i];
 
     if (error) {

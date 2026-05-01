@@ -4,7 +4,7 @@ import type { FetchInput, RawFetchResult, CachedContent, ExtractionResult } from
 vi.mock('../../../src/cache/store.js', () => ({
   getCachedContent: vi.fn(),
   cacheContent: vi.fn(),
-  isExpired: vi.fn(),
+  isCacheUsable: vi.fn(),
 }));
 
 vi.mock('../../../src/extraction/pipeline.js', () => ({
@@ -35,7 +35,7 @@ vi.mock('../../../src/cache/change-detector.js', () => ({
 }));
 
 import { handleFetch } from '../../../src/tools/fetch.js';
-import { getCachedContent, cacheContent, isExpired } from '../../../src/cache/store.js';
+import { getCachedContent, cacheContent, isCacheUsable } from '../../../src/cache/store.js';
 import { extractContent } from '../../../src/extraction/pipeline.js';
 import { extractSection } from '../../../src/extraction/markdown.js';
 import { detectChange } from '../../../src/cache/change-detector.js';
@@ -93,7 +93,7 @@ describe('handleFetch', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getCachedContent).mockReturnValue(null);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
   });
 
   it('returns markdown content for a valid URL', async () => {
@@ -127,9 +127,10 @@ describe('handleFetch', () => {
   });
 
   it('returns cached: true when content served from cache', async () => {
-    const cached = makeCached();
+    const knownFetchedAt = '2026-04-15T10:30:00.000Z';
+    const cached = makeCached({ fetchedAt: knownFetchedAt });
     vi.mocked(getCachedContent).mockReturnValue(cached);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
 
     const router = mockRouter();
     const input: FetchInput = { url: 'https://example.com', include_full_markdown: true };
@@ -140,6 +141,9 @@ describe('handleFetch', () => {
     expect(result.title).toBe('Cached Page');
     expect(result.markdown).toContain('Cached');
     expect(router.fetch).not.toHaveBeenCalled();
+    expect(result.cached_at).toBeDefined();
+    expect(typeof result.cached_at).toBe('string');
+    expect(result.cached_at).toBe(knownFetchedAt);
   });
 
   it('returns cached: false when freshly fetched', async () => {
@@ -172,7 +176,7 @@ describe('handleFetch', () => {
   it('applies section extraction on cached content', async () => {
     const cached = makeCached({ markdown: '# Intro\n\nIntro text\n\n# Install\n\nInstall steps' });
     vi.mocked(getCachedContent).mockReturnValue(cached);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
     vi.mocked(extractSection).mockReturnValue({ content: '# Install\n\nInstall steps', matched: true });
 
     const router = mockRouter();
@@ -205,7 +209,7 @@ describe('handleFetch', () => {
   it('respects max_chars on cached content', async () => {
     const cached = makeCached({ markdown: 'B'.repeat(500) });
     vi.mocked(getCachedContent).mockReturnValue(cached);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
 
     const router = mockRouter();
     const input: FetchInput = { url: 'https://example.com', max_chars: 50 };
@@ -246,7 +250,7 @@ describe('handleFetch', () => {
   it('fetches fresh when cache is expired', async () => {
     const cached = makeCached();
     vi.mocked(getCachedContent).mockReturnValue(cached);
-    vi.mocked(isExpired).mockReturnValue(true);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: false, stale: false });
     vi.mocked(extractContent).mockResolvedValue(makeExtraction());
 
     const router = mockRouter();
@@ -274,13 +278,13 @@ describe('handleFetch --- force_refresh', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getCachedContent).mockReturnValue(null);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
   });
 
   it('bypasses cache when force_refresh is true', async () => {
     const cached = makeCached();
     vi.mocked(getCachedContent).mockReturnValue(cached);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
     vi.mocked(extractContent).mockResolvedValue(makeExtraction({ markdown: 'fresh content' }));
 
     const router = mockRouter();
@@ -307,7 +311,7 @@ describe('handleFetch --- force_refresh', () => {
   it('uses cache when force_refresh is false', async () => {
     const cached = makeCached();
     vi.mocked(getCachedContent).mockReturnValue(cached);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
 
     const router = mockRouter();
     const input: FetchInput = { url: 'https://example.com', force_refresh: false };
@@ -321,7 +325,7 @@ describe('handleFetch --- force_refresh', () => {
   it('uses cache when force_refresh is undefined', async () => {
     const cached = makeCached();
     vi.mocked(getCachedContent).mockReturnValue(cached);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
 
     const router = mockRouter();
     const input: FetchInput = { url: 'https://example.com' };
@@ -337,7 +341,7 @@ describe('handleFetch --- actions support', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getCachedContent).mockReturnValue(null);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
   });
 
   it('passes actions to router.fetch', async () => {
@@ -387,7 +391,7 @@ describe('handleFetch --- actions support', () => {
   it('skips cache when actions are present (always fetches fresh)', async () => {
     const cached = makeCached();
     vi.mocked(getCachedContent).mockReturnValue(cached);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
     vi.mocked(extractContent).mockResolvedValue(makeExtraction());
 
     const router = mockRouter();
@@ -450,7 +454,7 @@ describe('handleFetch --- change detection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getCachedContent).mockReturnValue(null);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
     vi.mocked(detectChange).mockReturnValue({ changed: false });
   });
 
@@ -504,7 +508,7 @@ describe('handleFetch --- change detection', () => {
   it('does not call detectChange when serving from cache', async () => {
     const cached = makeCached();
     vi.mocked(getCachedContent).mockReturnValue(cached);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
 
     const router = mockRouter();
     const input: FetchInput = { url: 'https://example.com' };
@@ -556,7 +560,7 @@ describe('handleFetch --- change detection', () => {
   it('detects change after cache expiry triggers re-fetch', async () => {
     const cached = makeCached();
     vi.mocked(getCachedContent).mockReturnValue(cached);
-    vi.mocked(isExpired).mockReturnValue(true);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: false, stale: false });
     vi.mocked(extractContent).mockResolvedValue(makeExtraction({ markdown: 'new content' }));
     vi.mocked(detectChange).mockReturnValue({
       changed: true,
@@ -591,7 +595,7 @@ describe('handleFetch --- evidence shape', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getCachedContent).mockReturnValue(null);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
   });
 
   const longMarkdown =
@@ -640,7 +644,7 @@ describe('handleFetch --- evidence shape', () => {
   it('cached response also emits evidence and strips markdown by default', async () => {
     const cached = makeCached({ markdown: longMarkdown });
     vi.mocked(getCachedContent).mockReturnValue(cached);
-    vi.mocked(isExpired).mockReturnValue(false);
+    vi.mocked(isCacheUsable).mockReturnValue({ usable: true, stale: false });
 
     const router = mockRouter();
     const input: FetchInput = { url: 'https://example.com' };

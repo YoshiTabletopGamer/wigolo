@@ -1,12 +1,14 @@
 import type { FetchInput, FetchOutput, CachedContent } from '../types.js';
 import type { SmartRouter } from '../fetch/router.js';
 import { extractContent } from '../extraction/pipeline.js';
-import { getCachedContent, cacheContent, isExpired } from '../cache/store.js';
+import { getCachedContent, cacheContent, isCacheUsable } from '../cache/store.js';
+import { getConfig } from '../config.js';
 import { extractSection } from '../extraction/markdown.js';
 import { detectChange } from '../cache/change-detector.js';
 import { getEmbeddingService } from '../embedding/embed.js';
 import { truncateSmartly, applyOutputBudget } from '../search/truncate.js';
 import { buildEvidenceFromMarkdown } from '../search/evidence.js';
+import { resolveMode } from '../util/mode.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('fetch');
@@ -68,6 +70,7 @@ function formatCachedResponse(cached: CachedContent, input: FetchInput): FetchOu
     links: JSON.parse(cached.links || '[]'),
     images: JSON.parse(cached.images || '[]'),
     cached: true,
+    cached_at: cached.fetchedAt,
   };
 }
 
@@ -75,24 +78,31 @@ export async function handleFetch(
   input: FetchInput,
   router: SmartRouter,
 ): Promise<FetchOutput> {
+  const mode = resolveMode(input.mode);
   try {
     if (!input.force_refresh) {
       const cached = getCachedContent(input.url);
-      if (cached && !isExpired(cached) && (!input.actions || input.actions.length === 0)) {
-        log.info('Serving from cache', { url: input.url });
-        const out = formatCachedResponse(cached, input);
-        const fullMarkdown = out.markdown;
-        await attachEvidence(out, input, fullMarkdown);
-        return out;
+      if (cached && (!input.actions || input.actions.length === 0)) {
+        const staleMaxSeconds = mode === 'fast' ? getConfig().fastStaleMaxHours * 3600 : 0;
+        const { usable, stale } = isCacheUsable(cached, { staleMaxSeconds });
+        if (usable) {
+          log.info('Serving from cache', { url: input.url, stale });
+          const out = formatCachedResponse(cached, input);
+          if (stale) out.stale = true;
+          const fullMarkdown = out.markdown;
+          await attachEvidence(out, input, fullMarkdown);
+          return out;
+        }
       }
     }
 
     const raw = await router.fetch(input.url, {
-      renderJs: input.render_js ?? 'auto',
+      renderJs: mode === 'fast' ? 'never' : (input.render_js ?? 'auto'),
       useAuth: input.use_auth ?? false,
       headers: input.headers,
       screenshot: input.screenshot,
       actions: input.actions,
+      mode,
     });
 
     const extraction = await extractContent(raw.html, raw.finalUrl, {
@@ -139,6 +149,7 @@ export async function handleFetch(
       screenshot: raw.screenshot,
       cached: false,
       action_results: raw.actionResults,
+      ...(raw.jsRequired ? { js_required: true } : {}),
       ...(changeResult?.changed ? {
         changed: true,
         previous_hash: changeResult.previousHash,

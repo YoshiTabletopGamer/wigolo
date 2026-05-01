@@ -1,5 +1,8 @@
 import type { JsonSchema } from './extraction/schema.js';
 
+export type Mode = 'fast' | 'balanced' | 'deep';
+export const MODES: readonly Mode[] = ['fast', 'balanced', 'deep'] as const;
+
 export type BrowserAction =
   | { type: 'click'; selector: string }
   | { type: 'type'; selector: string; text: string }
@@ -31,6 +34,7 @@ export interface FetchInput {
   max_tokens_out?: number;
   include_full_markdown?: boolean;
   citation_format?: CitationFormat;
+  mode?: Mode;
 }
 
 export interface FetchOutput {
@@ -52,6 +56,9 @@ export interface FetchOutput {
   images: string[];
   screenshot?: string;
   cached: boolean;
+  cached_at?: string;
+  stale?: boolean;
+  js_required?: boolean;
   error?: string;
   action_results?: ActionResult[];
   changed?: boolean;
@@ -71,6 +78,7 @@ export interface RawFetchResult {
   rawBuffer?: Buffer;
   screenshot?: string;
   actionResults?: ActionResult[];
+  jsRequired?: boolean;
 }
 
 export interface ExtractionResult {
@@ -167,6 +175,7 @@ export interface SearchInput {
   max_tokens_out?: number;
   include_full_markdown?: boolean;
   citation_format?: CitationFormat;
+  mode?: Mode;
 }
 
 export interface SearchResultItem {
@@ -178,6 +187,9 @@ export interface SearchResultItem {
   content_truncated?: boolean;
   relevance_score: number;
   published_date?: string; // ISO date string, when engine provides it
+  cached?: boolean;
+  cached_at?: string;
+  stale?: boolean;
 }
 
 export interface SearchOutput {
