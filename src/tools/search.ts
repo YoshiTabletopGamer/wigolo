@@ -26,6 +26,7 @@ const DEFAULT_MAX_RESULTS = 5;
 const MAX_RESULTS_CAP = 20;
 const DEFAULT_CONTENT_MAX_CHARS = 30000;
 const DEFAULT_MAX_TOTAL_CHARS = 50000;
+const TOP_K_DEEP = 5;
 
 export async function handleSearch(
   input: SearchInput,
@@ -65,7 +66,10 @@ export async function handleSearch(
   }
 
   const maxResults = Math.min(input.max_results ?? DEFAULT_MAX_RESULTS, MAX_RESULTS_CAP);
-  const includeContent = input.include_content ?? true;
+  const includeContent = mode === 'deep' ? true : (input.include_content ?? true);
+  const deepFetchCap = mode === 'deep'
+    ? Math.min(input.max_results ?? 10, TOP_K_DEEP)
+    : undefined;
   const contentMaxChars = input.content_max_chars ?? DEFAULT_CONTENT_MAX_CHARS;
   const maxContentChars = input.max_content_chars;
   const maxTotalChars = input.max_total_chars ?? DEFAULT_MAX_TOTAL_CHARS;
@@ -225,6 +229,7 @@ export async function handleSearch(
         fetchTimeoutMs,
         totalDeadline: start + totalTimeoutMs,
         forceRefresh: input.force_refresh ?? false,
+        maxFetches: deepFetchCap,
       });
       fetchElapsed = Date.now() - fetchStart;
     }
@@ -518,6 +523,7 @@ interface FetchContext {
   fetchTimeoutMs: number;
   totalDeadline: number;
   forceRefresh: boolean;
+  maxFetches?: number;
 }
 
 // Parallel fetch all URLs; then apply total-char budget in relevance (input) order.
@@ -526,7 +532,10 @@ async function fetchContentForResults(
   router: SmartRouter,
   ctx: FetchContext,
 ): Promise<void> {
-  const fetches = results.map(async (result): Promise<{ content?: string; error?: string }> => {
+  const fetchTargets = ctx.maxFetches !== undefined
+    ? results.slice(0, ctx.maxFetches)
+    : results;
+  const fetches = fetchTargets.map(async (result): Promise<{ content?: string; error?: string }> => {
     if (Date.now() >= ctx.totalDeadline) {
       return { error: 'total_timeout' };
     }
@@ -574,8 +583,8 @@ async function fetchContentForResults(
   const fetched = await Promise.all(fetches);
 
   let totalCharsUsed = 0;
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
+  for (let i = 0; i < fetchTargets.length; i++) {
+    const result = fetchTargets[i];
     const { content, error } = fetched[i];
 
     if (error) {
