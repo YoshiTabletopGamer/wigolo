@@ -19,6 +19,9 @@ export const BOILERPLATE_SELECTORS: ReadonlyArray<string> = [
   'footer[class*="docs"]',
   '[class*="sticky-cta"]',
   'main [role="banner"]',
+  '[role="navigation"]',
+  '[class*="sidebar"]',
+  '[data-collection="docs"]',
 ];
 
 export interface BoilerplateDocument {

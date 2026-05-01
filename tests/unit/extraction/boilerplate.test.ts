@@ -38,6 +38,9 @@ describe('boilerplate constants', () => {
       'footer[class*="docs"]',
       '[class*="sticky-cta"]',
       'main [role="banner"]',
+      '[role="navigation"]',
+      '[class*="sidebar"]',
+      '[data-collection="docs"]',
     ];
     for (const sel of expected) {
       expect(BOILERPLATE_SELECTORS).toContain(sel);
@@ -90,5 +93,23 @@ describe('stripBoilerplateDom', () => {
     expect(out).not.toContain('role="banner"');
     expect(out).toContain('real content');
     expect(out).toContain('main text');
+  });
+
+  it('removes nav-equivalent elements (aside.sidebar, role=navigation, data-collection=docs)', () => {
+    const html = `
+      <html><body>
+        <aside class="sidebar">side nav</aside>
+        <nav role="navigation">primary nav</nav>
+        <div data-collection="docs">docs collection</div>
+        <p>kept content</p>
+      </body></html>
+    `;
+    const { document } = parseHTML(html);
+    stripBoilerplateDom(document);
+    const out = document.body.innerHTML;
+    expect(out).not.toContain('side nav');
+    expect(out).not.toContain('primary nav');
+    expect(out).not.toContain('docs collection');
+    expect(out).toContain('kept content');
   });
 });
