@@ -69,7 +69,7 @@ describe('SmartRouter mode=cache', () => {
     );
   });
 
-  it('warns and discards browser actions when combined with mode=fast', async () => {
+  it('warns and discards browser actions when combined with mode=cache', async () => {
     const warnings: Array<{ msg: string; data?: Record<string, unknown> }> = [];
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
       try {

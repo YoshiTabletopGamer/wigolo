@@ -26,8 +26,6 @@ const DEFAULT_MAX_RESULTS = 5;
 const MAX_RESULTS_CAP = 20;
 const DEFAULT_CONTENT_MAX_CHARS = 30000;
 const DEFAULT_MAX_TOTAL_CHARS = 50000;
-const TOP_K_DEEP = 5;
-
 export async function handleSearch(
   input: SearchInput,
   engines: SearchEngine[],
@@ -67,7 +65,6 @@ export async function handleSearch(
 
   const maxResults = Math.min(input.max_results ?? DEFAULT_MAX_RESULTS, MAX_RESULTS_CAP);
   const includeContent = input.include_content ?? true;
-  const deepFetchCap: number | undefined = undefined;
   const contentMaxChars = input.content_max_chars ?? DEFAULT_CONTENT_MAX_CHARS;
   const maxContentChars = input.max_content_chars;
   const maxTotalChars = input.max_total_chars ?? DEFAULT_MAX_TOTAL_CHARS;
@@ -87,6 +84,7 @@ export async function handleSearch(
 
   let normalizedQuery: string | string[] = input.query;
   let deepAutoExpanded = false;
+  // TODO(Task 3): replace with `mode !== 'cache' + expandIfSingle` — stealth-only is a temporary bridge
   if (mode === 'stealth' && typeof normalizedQuery === 'string') {
     normalizedQuery = expandQueryHeuristic(normalizedQuery);
     deepAutoExpanded = true;
@@ -227,7 +225,6 @@ export async function handleSearch(
         fetchTimeoutMs,
         totalDeadline: start + totalTimeoutMs,
         forceRefresh: input.force_refresh ?? false,
-        maxFetches: deepFetchCap,
       });
       fetchElapsed = Date.now() - fetchStart;
     }
