@@ -2,7 +2,7 @@ import { chromium, type Browser, type BrowserContext } from 'playwright';
 import { existsSync } from 'node:fs';
 import { createLogger } from '../logger.js';
 
-const log = createLogger('fetch');
+const log = createLogger('playwright-tier');
 
 export interface InstallStatus {
   installed: boolean;
