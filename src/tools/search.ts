@@ -12,6 +12,7 @@ import { synthesizeAnswer, buildStructuredFallback } from '../search/answer-synt
 import { extractHighlights } from '../search/highlights.js';
 import { applyEvidenceDefault } from '../search/evidence.js';
 import { normalizeQueries, fanOutSearch, synthesizeIntent, expandIfSingle } from '../search/multi-query.js';
+import { filterByLanguage } from '../search/language-filter.js';
 import { extractContent } from '../extraction/pipeline.js';
 import { truncateSmartly } from '../search/truncate.js';
 import { cacheSearchResults, getCachedSearchResults, cacheContent } from '../cache/store.js';
@@ -172,7 +173,15 @@ export async function handleSearch(
       },
     );
 
-    if (rawResults.length === 0) {
+    const filterTargetMq = (input.language ?? 'en').slice(0, 2).toLowerCase();
+    const filteredMq = filterByLanguage(rawResults, {
+      target: filterTargetMq,
+      dropThreshold: 0.4,
+    });
+    const filterWarningsMq = filteredMq.warnings.join('; ');
+    const filteredRaw = filteredMq.results;
+
+    if (filteredRaw.length === 0) {
       const output: SearchOutput = {
         results: [],
         query: displayQuery,
@@ -181,14 +190,14 @@ export async function handleSearch(
         error: errors.length > 0 ? errors.join('; ') : 'No results found',
         queries_executed: normalizedQueries,
       };
-      const warning = backendStatus?.consumeWarning();
-      if (warning) output.warning = warning;
+      const combined = [filterWarningsMq, backendStatus?.consumeWarning()].filter(Boolean).join('; ');
+      if (combined) output.warning = combined;
       return output;
     }
 
-    await emit(2, 5, `Deduplicating and reranking ${rawResults.length} results...`);
+    await emit(2, 5, `Deduplicating and reranking ${filteredRaw.length} results...`);
 
-    let merged = deduplicateResults(rawResults);
+    let merged = deduplicateResults(filteredRaw);
 
     merged = applyAllFilters(merged, {
       includeDomains: input.include_domains,
@@ -243,8 +252,8 @@ export async function handleSearch(
       fetch_time_ms: fetchElapsed,
       queries_executed: normalizedQueries,
     };
-    const warning = backendStatus?.consumeWarning();
-    if (warning) output.warning = warning;
+    const combinedMq = [filterWarningsMq, backendStatus?.consumeWarning()].filter(Boolean).join('; ');
+    if (combinedMq) output.warning = combinedMq;
     if ((input.format === 'answer' || input.format === 'stream_answer') && results.length > 0) {
       await applyAnswerSynthesis(input, output, results, maxTotalChars, samplingServer, streamProgress);
     } else if (results.length > 0 && mode !== 'cache') {
@@ -339,7 +348,15 @@ export async function handleSearch(
 
   await Promise.allSettled(searchPromises);
 
-  if (allRaw.length === 0) {
+  const filterTargetSq = (input.language ?? 'en').slice(0, 2).toLowerCase();
+  const filteredSq = filterByLanguage(allRaw, {
+    target: filterTargetSq,
+    dropThreshold: 0.4,
+  });
+  const filterWarningsSq = filteredSq.warnings.join('; ');
+  const filteredAllRaw = filteredSq.results;
+
+  if (filteredAllRaw.length === 0) {
     const output: SearchOutput = {
       results: [],
       query: queryStr,
@@ -347,14 +364,14 @@ export async function handleSearch(
       total_time_ms: Date.now() - start,
       error: errors.length > 0 ? errors.join('; ') : 'No results found',
     };
-    const warning = backendStatus?.consumeWarning();
-    if (warning) output.warning = warning;
+    const combined = [filterWarningsSq, backendStatus?.consumeWarning()].filter(Boolean).join('; ');
+    if (combined) output.warning = combined;
     return output;
   }
 
-  await emit(2, 5, `Deduplicating and reranking ${allRaw.length} results...`);
+  await emit(2, 5, `Deduplicating and reranking ${filteredAllRaw.length} results...`);
 
-  let merged = deduplicateResults(allRaw);
+  let merged = deduplicateResults(filteredAllRaw);
 
   merged = applyAllFilters(merged, {
     includeDomains: input.include_domains,
@@ -408,8 +425,8 @@ export async function handleSearch(
     search_time_ms: searchElapsed,
     fetch_time_ms: fetchElapsed,
   };
-  const warning = backendStatus?.consumeWarning();
-  if (warning) output.warning = warning;
+  const combinedSq = [filterWarningsSq, backendStatus?.consumeWarning()].filter(Boolean).join('; ');
+  if (combinedSq) output.warning = combinedSq;
   if ((input.format === 'answer' || input.format === 'stream_answer') && results.length > 0) {
     await applyAnswerSynthesis(input, output, results, maxTotalChars, samplingServer, streamProgress);
   } else if (results.length > 0 && mode !== 'cache') {
