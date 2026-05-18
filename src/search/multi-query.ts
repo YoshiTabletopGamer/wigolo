@@ -206,7 +206,7 @@ function splitListEntities(segment: string): string[] {
   const parts = cleaned
     .split(/,\s*(?:and\s+)?|\s+and\s+|\s+vs\.?\s+|\s+versus\s+/i)
     .map((s) => s.trim())
-    .filter((s) => s.length >= 2 && s.length <= 80 && !STOP_PHRASES.has(s.toLowerCase()));
+    .filter((s) => s.length >= 2 && s.length <= 120 && !STOP_PHRASES.has(s.toLowerCase()));
   return [...new Set(parts)];
 }
 
