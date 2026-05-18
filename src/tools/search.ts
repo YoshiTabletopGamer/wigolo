@@ -13,6 +13,7 @@ import { extractHighlights } from '../search/highlights.js';
 import { applyEvidenceDefault } from '../search/evidence.js';
 import { normalizeQueries, fanOutSearch, synthesizeIntent, expandIfSingle } from '../search/multi-query.js';
 import { filterByLanguage } from '../search/language-filter.js';
+import { hasRecencyIntent } from '../search/reranker/recency.js';
 import { extractContent } from '../extraction/pipeline.js';
 import { truncateSmartly } from '../search/truncate.js';
 import { cacheSearchResults, getCachedSearchResults, cacheContent } from '../cache/store.js';
@@ -69,6 +70,17 @@ export async function handleSearch(
   const maxTotalChars = input.max_total_chars ?? DEFAULT_MAX_TOTAL_CHARS;
   const totalTimeoutMs = config.searchTotalTimeoutMs;
   const fetchTimeoutMs = config.searchFetchTimeoutMs;
+
+  // Q12: when the query has temporal intent ("latest", "recent", "this week", current year),
+  // bypass cache and constrain engines to recent results. Existing recency-boost in rerank
+  // already biases newer published_date once results land; this gates the upstream retrieval.
+  {
+    const queryStr = Array.isArray(input.query) ? input.query.join(' ') : input.query;
+    if (typeof queryStr === 'string' && hasRecencyIntent(queryStr)) {
+      if (input.force_refresh !== false) input.force_refresh = true;
+      if (!input.time_range) input.time_range = 'week';
+    }
+  }
 
   // Progress notifications are only emitted for stream_answer format
   const streamProgress = input.format === 'stream_answer' ? onProgress : undefined;
