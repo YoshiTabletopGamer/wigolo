@@ -2,6 +2,7 @@ import type { MergedSearchResult } from './dedup.js';
 import { onnxRerank } from './reranker/onnx.js';
 import { applyRecencyBoost } from './reranker/recency-boost.js';
 import { applyAuthorityBoost } from './reranker/authority-boost.js';
+import { applyConsensusBoost } from './reranker/consensus-boost.js';
 import { getConfig } from '../config.js';
 import { createLogger } from '../logger.js';
 
@@ -21,7 +22,8 @@ export async function rerankResults(
       const passages = results.map((r) => ({ text: `${r.title}\n${r.snippet}` }));
       const ranked = await onnxRerank(query, passages, { modelId: config.rerankerModel });
       const reordered = ranked.map((s) => ({ ...results[s.index], relevance_score: s.score }));
-      const authorityBoosted = applyAuthorityBoost(query, reordered);
+      const consensusBoosted = applyConsensusBoost(reordered);
+      const authorityBoosted = applyAuthorityBoost(query, consensusBoosted);
       const boosted = applyRecencyBoost(query, authorityBoosted);
       boosted.sort((a, b) => b.relevance_score - a.relevance_score);
       return applyThreshold(boosted, config.relevanceThreshold);
@@ -32,7 +34,8 @@ export async function rerankResults(
     log.warn('Unknown reranker configured, passing through', { reranker: config.reranker });
   }
 
-  const authorityBoosted = applyAuthorityBoost(query, results);
+  const consensusBoosted = applyConsensusBoost(results);
+  const authorityBoosted = applyAuthorityBoost(query, consensusBoosted);
   const boosted = applyRecencyBoost(query, authorityBoosted);
   boosted.sort((a, b) => b.relevance_score - a.relevance_score);
   return applyThreshold(boosted, config.relevanceThreshold);

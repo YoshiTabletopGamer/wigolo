@@ -29,6 +29,42 @@ Firecrawl). Mean score is secondary. We are competing, not optimizing in a vacuu
    env vars must produce a working tool. Optional integrations may require keys when
    explicitly enabled.
 
+5. **No hand-curated subject→domain maps.** If a candidate change is shaped like
+   "extract entity X from query, boost domain Y" with X/Y enumerated by the proposer,
+   the iteration is REJECTED. Use data-driven alternatives:
+   - **Engine consensus**: results returning from ≥N distinct engines/sources (already
+     tracked in `MergedSearchResult.engines`).
+   - **Wikidata `P856` (official website)**: offline-mined entity → official-site lookup,
+     cached as local SQLite. Entity extraction via existing tokenizer; no manual subject list.
+   - **Per-query link graph**: count incoming references inside the top-K retrieved page
+     contents; self-bootstrapping per query.
+   - **Learned reranker fine-tune**: defer-able; needs labelled training data, but the
+     correct long-term home for "authoritativeness."
+
+6. **No bench-corpus-derived regex without external provenance.** Pattern-matching on
+   query shapes (e.g., temporal-intent regex, multi-hop decomposition regex) must be:
+   - (a) defended in the commit message against established IR / NLP literature (cite a
+     paper, a temporal-marker lexicon like TimeBank, or a public query log corpus), AND
+   - (b) paired with a generic fallback so the regex list does not grow per new bench query.
+   If neither is satisfied the iteration is REJECTED.
+
+7. **Generalization claim required per iteration.** Every `experiment:` commit body must
+   state: which class of queries the change targets, why it generalizes beyond the
+   current chunk, and what would falsify the generalization claim. A claim that names a
+   specific bench query (e.g., "fixes adv-002") is insufficient — name the class of
+   queries instead (e.g., "fixes rank-survey queries whose top results live on aggregator
+   sites").
+
+8. **Holdout gates KEEP decisions.** Every KEEP must also run the holdout chunk. If
+   `chunk_score_delta > 0` AND `holdout_score_delta ≤ 0`, the iteration is REVERTED
+   regardless of in-loop gain. Both deltas are recorded in `LOOP_LOG.md` per iteration.
+
+9. **Per-iteration overfit signal** is a first-class audit field. Every entry in
+   `LOOP_LOG.md` carries a `(chunk_delta, holdout_delta)` tuple. A streak of three
+   diverging tuples (chunk gain without holdout gain) switches the loop to
+   exploration-mode: take a candidate from a different lever class (latency, infra,
+   reranker fine-tune) rather than another quality patch.
+
 ## Permitted directions (loop should explore these aggressively)
 
 - Local LLM inference via Ollama / llama.cpp / candle / etc.
@@ -61,6 +97,10 @@ Firecrawl). Mean score is secondary. We are competing, not optimizing in a vacuu
   arg shape changes require a major version bump and are out of scope for autonomous iteration.
 - Changes that require manual environment setup (new database, new daemon, new auth).
   All changes must be testable by `./scripts/verify.sh` with no human in the loop.
+- **Single-query optimization.** A fix justified by exactly one bench query (even if
+  that query is failing badly) is target-specific by definition. Reject it and look
+  for a query *class*. If no class can be named, escalate the underlying signal to a
+  data-driven mechanism (consensus, Wikidata, link graph) rather than a per-query patch.
 
 ## Verify commands
 
