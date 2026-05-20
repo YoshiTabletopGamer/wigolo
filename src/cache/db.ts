@@ -1,6 +1,16 @@
 import Database from 'better-sqlite3';
+import * as sv from 'sqlite-vec';
+import { createLogger } from '../logger.js';
+import { applyMigrations } from './migrations/runner.js';
+
+const log = createLogger('cache');
 
 let instance: Database.Database | null = null;
+let vecLoaded = false;
+
+export function isVecExtensionLoaded(): boolean {
+  return vecLoaded;
+}
 
 export function initDatabase(dbPath: string): Database.Database {
   if (instance) {
@@ -13,6 +23,20 @@ export function initDatabase(dbPath: string): Database.Database {
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
+
+  // sqlite-vec extension. Required for vector search; soft-fails on
+  // unsupported platforms (musl/alpine) so cache.db init still works for
+  // FTS5-only flows. Vector code paths check `isVecExtensionLoaded()` or
+  // gracefully degrade.
+  try {
+    sv.load(db);
+    vecLoaded = true;
+  } catch (err) {
+    vecLoaded = false;
+    log.warn('sqlite-vec extension failed to load — vector search disabled', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS url_cache (
@@ -118,6 +142,20 @@ export function initDatabase(dbPath: string): Database.Database {
     // Migration already applied or column already exists
   }
 
+  // Apply registered migrations after the inline schema is in place so
+  // migrations can build on the legacy tables (url_cache, etc.). Skip the
+  // vec0 migration when the extension didn't load — its CREATE VIRTUAL
+  // TABLE statement would fail otherwise.
+  if (vecLoaded) {
+    try {
+      applyMigrations(db);
+    } catch (err) {
+      log.error('migration runner failed — vector search may be disabled', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   instance = db;
   return db;
 }
@@ -133,5 +171,6 @@ export function closeDatabase(): void {
   if (instance) {
     instance.close();
     instance = null;
+    vecLoaded = false;
   }
 }
