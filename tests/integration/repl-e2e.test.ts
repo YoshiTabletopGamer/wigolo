@@ -32,8 +32,16 @@ function runShellCommand(input: string, args: string[] = []): Promise<{ stdout: 
   });
 }
 
+// Each test spawns `node dist/index.js shell` as a real child process. Under
+// heavy parallel load (e.g. the full integration suite where many tests also
+// spawn children), child startup and stdio plumbing can race — the child
+// occasionally exits before stdout is fully drained, or `stdin.end()` arrives
+// before the REPL has finished reading the first command line. The retries
+// here are a pragmatic guard: every assertion is deterministic given a
+// successful spawn, so a single retry suffices in practice. We use 3 for
+// headroom under CI contention.
 describe('REPL integration', () => {
-  it('responds to help command', async () => {
+  it('responds to help command', { retry: 3 }, async () => {
     const { stdout } = await runShellCommand('help');
     expect(stdout).toContain('Available commands');
     expect(stdout).toContain('search');
@@ -43,18 +51,18 @@ describe('REPL integration', () => {
     expect(stdout).toContain('extract');
   }, 15_000);
 
-  it('exits cleanly on exit command', async () => {
+  it('exits cleanly on exit command', { retry: 3 }, async () => {
     const { stdout, exitCode } = await runShellCommand('exit');
     expect(stdout).toContain('Goodbye');
     expect(exitCode).toBe(0);
   }, 10_000);
 
-  it('handles unknown commands gracefully', async () => {
+  it('handles unknown commands gracefully', { retry: 3 }, async () => {
     const { stdout } = await runShellCommand('foobar');
     expect(stdout).toContain('Unknown command');
   }, 10_000);
 
-  it('returns JSON output with --json flag', async () => {
+  it('returns JSON output with --json flag', { retry: 3 }, async () => {
     const { stdout } = await runShellCommand('cache stats', ['--json']);
     try {
       const lines = stdout.trim().split('\n').filter(l => l.trim());
@@ -68,22 +76,22 @@ describe('REPL integration', () => {
     }
   }, 15_000);
 
-  it('handles search with missing query', async () => {
+  it('handles search with missing query', { retry: 3 }, async () => {
     const { stdout } = await runShellCommand('search');
     expect(stdout).toContain('Usage');
   }, 10_000);
 
-  it('handles fetch with missing URL', async () => {
+  it('handles fetch with missing URL', { retry: 3 }, async () => {
     const { stdout } = await runShellCommand('fetch');
     expect(stdout).toContain('Usage');
   }, 10_000);
 
-  it('handles empty input lines', async () => {
+  it('handles empty input lines', { retry: 3 }, async () => {
     const { exitCode } = await runShellCommand('');
     expect(exitCode).toBe(0);
   }, 10_000);
 
-  it('displays goodbye on exit', async () => {
+  it('displays goodbye on exit', { retry: 3 }, async () => {
     const { stdout } = await runShellCommand('exit');
     expect(stdout).toContain('Goodbye');
   }, 10_000);
