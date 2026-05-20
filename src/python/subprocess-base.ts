@@ -58,8 +58,8 @@ export abstract class PythonWorker<Req, Res> {
   }
 
   // call() lazily spawns the subprocess on first invocation, awaits the READY handshake,
-  // then writes the JSON-line request and awaits a matching id on stdout. Mirrors
-  // EmbeddingSubprocess.embed() at src/embedding/subprocess.ts:61-87.
+  // then writes the JSON-line request and awaits a matching id on stdout.
+  // Now used only by the rerank subprocess (Phase 4 deletes it too).
   async call(req: Req): Promise<Res> {
     if (!this.proc && !this.spawnPromise) {
       this.spawnPromise = this.spawnProcess();

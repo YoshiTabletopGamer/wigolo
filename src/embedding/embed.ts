@@ -1,26 +1,37 @@
-import { randomUUID } from 'node:crypto';
-import { EmbeddingSubprocess } from './subprocess.js';
+import type { EmbedProvider } from '../providers/embed-provider.js';
 import { VectorIndex, type SimilarResult } from './vector-index.js';
 import { updateCacheEmbedding, getAllEmbeddings, normalizeUrl } from '../cache/store.js';
-import { getConfig } from '../config.js';
+import { FastembedEmbedProvider } from './fastembed-provider.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('embedding');
 
+/**
+ * Embedding service backed by the native fastembed (ONNX) provider.
+ *
+ * Phase 3 replaced the sentence-transformers Python subprocess with the
+ * `FastembedEmbedProvider`. The public surface (init / embedAndStore /
+ * embedAsync / findSimilar / getIndex / isAvailable / shutdown) is unchanged so
+ * callers in server.ts, tools/fetch.ts, research/pipeline.ts,
+ * search/find-similar.ts, and the legacy SearXNG orchestrator continue to work
+ * without modification.
+ */
 export class EmbeddingService {
-  private subprocess: EmbeddingSubprocess;
+  private provider: EmbedProvider;
   private index: VectorIndex;
   private available = false;
-  private subprocessVerified = false;
+  private providerVerified = false;
 
-  constructor() {
-    this.subprocess = new EmbeddingSubprocess();
+  constructor(provider?: EmbedProvider) {
+    this.provider = provider ?? new FastembedEmbedProvider();
     this.index = new VectorIndex();
   }
 
   async init(): Promise<void> {
     try {
-      const stored = getAllEmbeddings();
+      // Load any embeddings produced by the current model — entries from
+      // other models would have incompatible dimensionality.
+      const stored = getAllEmbeddings(this.provider.modelId);
       if (stored.length > 0) {
         const entries = stored
           .filter(e => e.embedding && e.dims > 0)
@@ -33,22 +44,22 @@ export class EmbeddingService {
         log.info('loaded embeddings into index', { count: loaded });
       }
 
-      // Probe the subprocess to verify Python + sentence-transformers work.
-      // This forces the lazy spawn so we know right away if embedding is broken.
+      // Probe the provider so we know up front whether ONNX init works.
       try {
-        const probeId = 'init-probe';
-        await this.subprocess.embed(probeId, 'embedding service probe');
-        this.subprocessVerified = true;
-        log.info('embedding subprocess verified');
+        await this.provider.embed(['embedding service probe']);
+        this.providerVerified = true;
+        log.info('embedding provider verified', {
+          modelId: this.provider.modelId,
+          dim: this.provider.dim,
+        });
       } catch (err) {
-        log.warn('embedding subprocess probe failed — embeddings disabled', {
+        log.warn('embedding provider probe failed — embeddings disabled', {
           error: err instanceof Error ? err.message : String(err),
         });
-        this.subprocessVerified = false;
+        this.providerVerified = false;
       }
 
       this.available = true;
-
     } catch (err) {
       log.error('EmbeddingService init failed', { error: String(err) });
       this.available = false;
@@ -63,8 +74,9 @@ export class EmbeddingService {
     this.available = value;
   }
 
+  /** Backwards-compat alias preserved for callers that gated on subprocess readiness. */
   isSubprocessReady(): boolean {
-    return this.subprocessVerified;
+    return this.providerVerified;
   }
 
   getIndex(): VectorIndex {
@@ -78,18 +90,15 @@ export class EmbeddingService {
     }
 
     try {
-      const requestId = randomUUID();
-      const response = await this.subprocess.embed(requestId, markdown);
-
-      if (!response.vector || response.error) {
-        log.warn('embedding failed for URL', { url, error: response.error });
+      const [vector] = await this.provider.embed([markdown]);
+      if (!vector || vector.length === 0) {
+        log.warn('embedding returned empty vector', { url });
         return;
       }
 
-      const vector = new Float32Array(response.vector);
-      const buffer = Buffer.from(vector.buffer);
-      const model = this.subprocess.getModel() ?? getConfig().embeddingModel;
-      const dims = this.subprocess.getDims() ?? response.vector.length;
+      const buffer = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength);
+      const model = this.provider.modelId;
+      const dims = vector.length;
 
       let normalizedUrl: string;
       try {
@@ -125,15 +134,11 @@ export class EmbeddingService {
     }
 
     try {
-      const requestId = randomUUID();
-      const response = await this.subprocess.embed(requestId, queryText);
-
-      if (!response.vector || response.error) {
-        log.warn('query embedding failed', { error: response.error });
+      const [queryVector] = await this.provider.embed([queryText]);
+      if (!queryVector || queryVector.length === 0) {
+        log.warn('query embedding failed: empty vector');
         return [];
       }
-
-      const queryVector = new Float32Array(response.vector);
       return this.index.findSimilar(queryVector, topK, excludeUrls);
     } catch (err) {
       log.warn('findSimilar failed', { error: String(err) });
@@ -143,9 +148,9 @@ export class EmbeddingService {
 
   shutdown(): void {
     try {
-      this.subprocess.shutdown();
       this.index.clear();
       this.available = false;
+      this.providerVerified = false;
       log.info('EmbeddingService shut down');
     } catch (err) {
       log.error('EmbeddingService shutdown error', { error: String(err) });

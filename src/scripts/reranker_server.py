@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Long-lived reranker server. JSON-line protocol matches embedding_server.py.
+"""Long-lived reranker server using JSON-line stdio protocol.
 
-Units note: max_length here is TOKENS (typically 512). embedding_server.py's
-max_length is CHARACTERS (typically 8000). Not interchangeable.
+Units note: max_length here is TOKENS (typically 512). Not interchangeable
+with the character-based truncation done host-side before embedding.
 
 Spawn:    <venv-python> reranker_server.py <model_dir> <max_length>
 Startup:  stderr "READY model=<id> max_length=<N> input_names=<csv> post_processor=<type>\n"
