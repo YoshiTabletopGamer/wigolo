@@ -29,10 +29,24 @@ def main():
     model_dir = Path(sys.argv[1]).resolve()
     max_length = int(sys.argv[2])
 
+    # xenova-JS compat patch — see src/scripts/reranker_server.py for the full
+    # rationale. Both files must apply identical patching so the equivalence
+    # test compares apples-to-apples against the production hot-path.
     try:
-        tok = Tokenizer.from_file(str(model_dir / 'tokenizer.json'))
+        with open(model_dir / 'tokenizer.json', 'rb') as f:
+            tok_json = json.loads(f.read())
+        tok_json['pre_tokenizer'] = {
+            'type': 'Metaspace',
+            'replacement': '▁',
+            'prepend_scheme': 'never',
+            'split': False,
+        }
+        patched_path = model_dir / 'tokenizer_xenova_compat.json'
+        with open(patched_path, 'w', encoding='utf-8') as f:
+            json.dump(tok_json, f, ensure_ascii=False)
+        tok = Tokenizer.from_file(str(patched_path))
         tok.enable_truncation(max_length=max_length, strategy='only_second')
-        tok.enable_padding(length=max_length)
+        tok.enable_padding(length=max_length, pad_id=1, pad_token='<pad>')
     except Exception as e:
         sys.stdout.write(json.dumps({'error': f'tokenizer load failed: {e}'}))
         return

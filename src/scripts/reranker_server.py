@@ -38,6 +38,7 @@ def main():
     tokenizer_path = model_dir / 'tokenizer.json'
     model_path = model_dir / 'model_quantized.onnx'
 
+    # Read + validate tokenizer.json.
     try:
         with open(tokenizer_path, 'rb') as f:
             tok_json = json.loads(f.read())
@@ -53,10 +54,35 @@ def main():
         sys.stderr.flush()
         sys.exit(1)
 
+    # xenova-JS compat: @xenova/transformers re-implements SentencePiece and has
+    # three known bugs vs the canonical spec — missing add_prefix_space, broken
+    # MetaspacePreTokenizer split=true, and UTF-16 surrogate-pair splitting in
+    # the normalizer. The Wigolo production reranker has shipped on xenova for a
+    # while, so to preserve score parity during the migration we emulate xenova's
+    # behavior at the pre_tokenizer level. This matches xenova byte-for-byte on
+    # ASCII / multilingual / special-token / edge-case corpora; emoji (bug 3)
+    # and long-doc truncation still diverge but those are tracked as
+    # accepted-mismatch in the equivalence test. See spec §10.4 + investigation
+    # notes for the full breakdown. Mirror this patch in tests/fixtures/dump_tokens.py.
+    tok_json['pre_tokenizer'] = {
+        'type': 'Metaspace',
+        'replacement': '▁',
+        'prepend_scheme': 'never',
+        'split': False,
+    }
+    patched_path = model_dir / 'tokenizer_xenova_compat.json'
     try:
-        tok = Tokenizer.from_file(str(tokenizer_path))
+        with open(patched_path, 'w', encoding='utf-8') as f:
+            json.dump(tok_json, f, ensure_ascii=False)
+    except Exception as e:
+        sys.stderr.write(f'ERROR writing patched tokenizer.json: {e}\n')
+        sys.stderr.flush()
+        sys.exit(1)
+
+    try:
+        tok = Tokenizer.from_file(str(patched_path))
         tok.enable_truncation(max_length=max_length, strategy='only_second')
-        tok.enable_padding(length=max_length)
+        tok.enable_padding(length=max_length, pad_id=1, pad_token='<pad>')
     except Exception as e:
         sys.stderr.write(f'ERROR tokenizer load failed: {e}\n')
         sys.stderr.flush()
@@ -72,7 +98,7 @@ def main():
 
     sys.stderr.write(
         f'READY model={model_id} max_length={max_length} '
-        f'input_names={",".join(input_names)} post_processor=TemplateProcessing\n'
+        f'input_names={",".join(input_names)} post_processor=TemplateProcessing xenova_compat=1\n'
     )
     sys.stderr.flush()
 
