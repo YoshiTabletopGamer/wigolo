@@ -24,9 +24,6 @@ import { runDoctor } from '../../../src/cli/doctor.js';
 function okProc(stdout = ''): ReturnType<typeof spawnSync> {
   return { status: 0, stdout, stderr: '', signal: null, pid: 1, output: [], error: undefined } as ReturnType<typeof spawnSync>;
 }
-function failProc(): ReturnType<typeof spawnSync> {
-  return { status: 1, stdout: '', stderr: 'not found', signal: null, pid: 1, output: [], error: new Error('ENOENT') } as ReturnType<typeof spawnSync>;
-}
 
 describe('runDoctor', () => {
   let outBuffer = '';
@@ -71,23 +68,6 @@ describe('runDoctor', () => {
     expect(outBuffer).toContain('pip install failed');
     expect(outBuffer).toContain('warmup --force');
     expect(outBuffer).toMatch(/Overall: DEGRADED/);
-  });
-
-  it('exits 0 when only optional packages missing', async () => {
-    vi.mocked(spawnSync).mockImplementation((cmd, args) => {
-      const joined = [cmd, ...((args ?? []) as string[])].join(' ');
-      if (joined.includes('trafilatura')) return failProc();
-      return okProc('Python 3.12.4');
-    });
-    vi.mocked(existsSync).mockReturnValue(true);
-    vi.mocked(readFileSync).mockImplementation((p) => {
-      const s = String(p);
-      if (s.endsWith('state.json')) return JSON.stringify({ status: 'ready', searxngPath: '/tmp/searxng' });
-      if (s.endsWith('searxng.lock')) return JSON.stringify({ pid: process.pid, port: 8888 });
-      return '';
-    });
-    const code = await runDoctor('/tmp/.wigolo');
-    expect(code).toBe(0);
   });
 
   it('exits 1 when Playwright is installed but chromium browser is missing', async () => {

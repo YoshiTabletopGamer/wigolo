@@ -11,8 +11,6 @@ export interface VerifyResult {
   searxngError?: string;
   reranker: 'ok' | 'missing';
   rerankerError?: string;
-  trafilatura: 'ok' | 'missing';
-  trafilaturaError?: string;
   embeddings: 'ok' | 'missing';
   embeddingsError?: string;
   embeddingsDim?: number;
@@ -21,7 +19,6 @@ export interface VerifyResult {
 
 const SEARXNG_LABEL = 'Starting search engine (searxng)';
 const RERANKER_LABEL = 'Checking ML reranker (cross-encoder)';
-const TRAFILATURA_LABEL = 'Checking content extractor (trafilatura)';
 const EMBEDDINGS_LABEL = 'Checking embeddings';
 
 export async function runVerify(
@@ -31,7 +28,6 @@ export async function runVerify(
   const result: VerifyResult = {
     searxng: 'failed',
     reranker: 'missing',
-    trafilatura: 'missing',
     embeddings: 'missing',
     allPassed: false,
   };
@@ -69,10 +65,6 @@ export async function runVerify(
   result.reranker = rerankerProbe.state;
   if (rerankerProbe.error) result.rerankerError = rerankerProbe.error;
 
-  result.trafilatura = runImportProbe(py, 'trafilatura', TRAFILATURA_LABEL, 'trafilatura', reporter, (err) => {
-    result.trafilaturaError = err;
-  });
-
   const { state: embeddingsState, error: embeddingsError, dim } = runEmbeddingsProbe(py, reporter);
   result.embeddings = embeddingsState;
   if (embeddingsError) result.embeddingsError = embeddingsError;
@@ -95,27 +87,6 @@ async function runRerankerProbe(
     const message = err instanceof Error ? err.message : String(err);
     reporter.fail('reranker', 'not installed');
     return { state: 'missing', error: message };
-  }
-}
-
-function runImportProbe(
-  py: string,
-  moduleName: string,
-  label: string,
-  id: 'trafilatura',
-  reporter: WarmupReporter,
-  onError: (err: string) => void,
-): 'ok' | 'missing' {
-  reporter.start(id, label);
-  try {
-    execSync(`${py} -c "import ${moduleName}"`, { stdio: 'pipe', timeout: 30000 });
-    reporter.success(id, 'installed');
-    return 'ok';
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    onError(message);
-    reporter.fail(id, 'not installed');
-    return 'missing';
   }
 }
 
@@ -146,7 +117,6 @@ function finalize(result: VerifyResult, reporter?: WarmupReporter): VerifyResult
   result.allPassed =
     result.searxng === 'ok' &&
     result.reranker === 'ok' &&
-    result.trafilatura === 'ok' &&
     result.embeddings === 'ok';
   if (!result.allPassed && reporter) {
     for (const note of suggestionsFromResult(result)) reporter.note(note);

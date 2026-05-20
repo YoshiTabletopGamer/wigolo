@@ -1,21 +1,14 @@
-import { execSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { getPythonBin } from '../../python-env.js';
 
 export interface PythonProbeResult {
   reranker: 'ok' | 'missing';
-  trafilatura: 'ok' | 'missing';
   embeddings: 'ok' | 'missing';
 }
 
-const PROBE_TIMEOUT_MS = 10000;
-
 export function probePythonPackages(dataDir: string): PythonProbeResult {
-  const py = getPythonBin(dataDir);
   return {
     reranker: probeRerankerCache(dataDir),
-    trafilatura: tryImport(py, 'trafilatura'),
     embeddings: probeFastembedCache(dataDir),
   };
 }
@@ -38,18 +31,6 @@ function probeFastembedCache(dataDir: string): 'ok' | 'missing' {
   if (!existsSync(cacheDir)) return 'missing';
   try {
     return readdirSync(cacheDir).length > 0 ? 'ok' : 'missing';
-  } catch {
-    return 'missing';
-  }
-}
-
-function tryImport(py: string, moduleName: string): 'ok' | 'missing' {
-  try {
-    execSync(`${py} -c "import ${moduleName}"`, {
-      stdio: 'pipe',
-      timeout: PROBE_TIMEOUT_MS,
-    });
-    return 'ok';
   } catch {
     return 'missing';
   }

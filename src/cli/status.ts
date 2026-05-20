@@ -28,7 +28,6 @@ export async function runStatus(_args: string[]): Promise<number> {
     version: pkg.version ?? '0.0.0',
     searxng,
     reranker: python.reranker,
-    trafilatura: python.trafilatura,
     embeddings: python.embeddings,
     cache,
     agents,

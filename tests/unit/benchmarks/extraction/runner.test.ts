@@ -10,7 +10,7 @@ import {
 import type { ManifestEntry, Manifest } from '../../../../benchmarks/extraction/types.js';
 
 vi.mock('../../../../src/config.js', () => ({
-  getConfig: vi.fn(() => ({ trafilatura: 'never' })),
+  getConfig: vi.fn(() => ({})),
 }));
 
 vi.mock('../../../../src/extraction/pipeline.js', () => ({

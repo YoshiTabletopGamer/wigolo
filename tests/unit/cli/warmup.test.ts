@@ -161,50 +161,6 @@ describe('runWarmup with flags', () => {
     expect(result.playwright).toBe('ok');
   });
 
-  it('installs trafilatura when --trafilatura flag is passed', async () => {
-    vi.mocked(getBootstrapState).mockReturnValue({ status: 'ready', searxngPath: '/tmp/searxng' });
-
-    await runWarmup(['--trafilatura']);
-
-    const calls = vi.mocked(runCommand).mock.calls;
-    const pipCall = calls.find((c) => includesArg(c, 'trafilatura'));
-    expect(pipCall).toBeDefined();
-    expect(argsOf(pipCall!)).toEqual(expect.arrayContaining(['-m', 'pip', 'install']));
-  });
-
-  it('installs trafilatura when --all flag is passed', async () => {
-    vi.mocked(getBootstrapState).mockReturnValue({ status: 'ready', searxngPath: '/tmp/searxng' });
-
-    await runWarmup(['--all']);
-
-    const calls = vi.mocked(runCommand).mock.calls;
-    const pipCall = calls.find((c) => includesArg(c, 'trafilatura'));
-    expect(pipCall).toBeDefined();
-  });
-
-  it('does not install trafilatura when no flag is passed', async () => {
-    vi.mocked(getBootstrapState).mockReturnValue({ status: 'ready', searxngPath: '/tmp/searxng' });
-
-    await runWarmup([]);
-
-    const calls = vi.mocked(runCommand).mock.calls;
-    const pipCall = calls.find((c) => includesArg(c, 'trafilatura'));
-    expect(pipCall).toBeUndefined();
-  });
-
-  it('handles trafilatura install failure gracefully', async () => {
-    vi.mocked(getBootstrapState).mockReturnValue({ status: 'ready', searxngPath: '/tmp/searxng' });
-
-    vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
-      if (args.some((a) => String(a).includes('trafilatura'))) {
-        return failWith('pip install failed: network error');
-      }
-      return ok;
-    });
-
-    const result = await runWarmup(['--trafilatura']);
-    expect(result.playwright).toBe('ok');
-  });
 });
 
 describe('warmup --reranker', () => {

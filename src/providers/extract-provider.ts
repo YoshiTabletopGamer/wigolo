@@ -1,13 +1,10 @@
 /**
- * Extract provider interface — Phase 1 Task 1.3 of v1 engine overhaul.
- *
- * Wraps the existing ensemble pipeline (Defuddle → Trafilatura → Readability
- * + site extractors) behind a stable interface. The factory always returns
- * the legacy adapter today; Phase 5 swaps in the v1 implementation.
+ * Extract provider interface — wraps the v1 extraction pipeline behind a
+ * stable interface.
  *
  * Note: named ExtractProvider (not Extractor) to avoid collision with the
  * pre-existing `Extractor` interface in `src/types.ts`, which models a single
- * site-specific extractor within the ensemble pipeline.
+ * site-specific extractor within the v1 pipeline.
  */
 import type { ExtractionResult } from '../types.js';
 import { createLogger } from '../logger.js';

@@ -20,7 +20,6 @@ function buildItems(browser: BrowserChoice): InstallItem[] {
     items.push({ id: 'firefox', name: 'Firefox', status: 'waiting' });
   }
   items.push(
-    { id: 'trafilatura', name: 'Content extractor', status: 'waiting' },
     { id: 'reranker', name: 'ML reranker', status: 'waiting' },
     { id: 'embeddings', name: 'Embeddings', status: 'waiting' },
   );
@@ -90,7 +89,6 @@ export function useInstall(browser: BrowserChoice): {
       // Pass individual flags instead of --all to avoid triggering
       // warmup's built-in --verify (the TUI has its own Verification screen)
       const flags = [
-        '--trafilatura',
         '--reranker',
         '--embeddings',
       ];

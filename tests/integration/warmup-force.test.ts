@@ -13,13 +13,11 @@ vi.mock('../../src/searxng/bootstrap.js', async () => {
   };
 });
 
-// importOriginal form required: extraction/trafilatura.ts calls promisify(execFile) at module
-// load, so the literal { execSync, spawnSync } form breaks at import.
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
   return {
     ...actual,
-    execSync: vi.fn(), // playwright + trafilatura no-op
+    execSync: vi.fn(),
     spawnSync: vi.fn(),
   };
 });

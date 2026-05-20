@@ -39,7 +39,6 @@ export interface Config {
   braveApiKey: string | null;
   logLevel: 'debug' | 'info' | 'warn' | 'error';
   logFormat: 'json' | 'text';
-  trafilatura: 'auto' | 'always' | 'never';
   reranker: 'onnx' | 'none' | 'custom';
   rerankerModel: string;
   rerankerMaxLength: number;
@@ -134,7 +133,6 @@ export function getConfig(): Config {
     braveApiKey: envStr('BRAVE_API_KEY'),
     logLevel: (envStr('LOG_LEVEL', 'info') as Config['logLevel']),
     logFormat: (envStr('LOG_FORMAT', 'json') as Config['logFormat']),
-    trafilatura: (envStr('WIGOLO_TRAFILATURA', 'auto') as 'auto' | 'always' | 'never'),
     reranker: (() => {
       const raw = envStr('WIGOLO_RERANKER') ?? 'onnx';
       if (raw === 'flashrank') {

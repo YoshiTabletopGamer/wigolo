@@ -4,7 +4,6 @@ import { getConfig } from '../config.js';
 import { checkPythonAvailable, bootstrapNativeSearxng, getBootstrapState } from '../searxng/bootstrap.js';
 import { isProcessAlive } from '../searxng/process.js';
 import { getRerankProvider } from '../providers/rerank-provider.js';
-import { getPythonBin } from '../python-env.js';
 import { runCommand } from './tui/run-command.js';
 import type { WarmupReporter } from './tui/reporter.js';
 import { autoReporter } from './tui/reporter-auto.js';
@@ -15,7 +14,6 @@ export interface WarmupResult {
   playwrightError?: string;
   searxng: 'ready' | 'bootstrapped' | 'failed' | 'no_python';
   searxngError?: string;
-  trafilatura?: 'ok' | 'failed' | 'skipped';
   reranker?: 'ok' | 'failed';
   rerankerError?: string;
   firefox?: 'ok' | 'failed';
@@ -61,19 +59,6 @@ async function installPlaywright(reporter: WarmupReporter): Promise<Pick<WarmupR
   const message = (r.stderr || r.stdout || `exit ${r.code}`).trim();
   reporter.fail('playwright', message);
   return { playwright: 'failed', playwrightError: message };
-}
-
-async function installTrafilatura(dataDir: string, reporter: WarmupReporter): Promise<'ok' | 'failed'> {
-  reporter.start('trafilatura', 'Installing content extractor (trafilatura)');
-  const py = getPythonBin(dataDir);
-  const r = await runCommand(py, ['-m', 'pip', 'install', '--quiet', 'trafilatura'], { timeout: 180000 });
-  if (r.code === 0) {
-    reporter.success('trafilatura', 'installed');
-    return 'ok';
-  }
-  const message = (r.stderr || r.stdout || `exit ${r.code}`).trim();
-  reporter.fail('trafilatura', message);
-  return 'failed';
 }
 
 async function installReranker(
@@ -255,11 +240,6 @@ export async function runWarmup(
   const pwResult = await installPlaywright(reporterImpl);
   const searxngResult = await runSearxngPhase(config.dataDir, reporterImpl);
 
-  let trafStatus: 'ok' | 'failed' | 'skipped' = 'skipped';
-  if (flagSet.has('--trafilatura') || flagSet.has('--all')) {
-    trafStatus = await installTrafilatura(config.dataDir, reporterImpl);
-  }
-
   let rerankerResult: Pick<WarmupResult, 'reranker' | 'rerankerError'> = {};
   if (flagSet.has('--reranker') || flagSet.has('--all')) {
     rerankerResult = await installReranker(reporterImpl);
@@ -288,7 +268,6 @@ export async function runWarmup(
   const result: WarmupResult = {
     ...pwResult,
     ...searxngResult,
-    trafilatura: trafStatus,
     ...rerankerResult,
     ...firefoxResult,
     ...webkitResult,
@@ -300,7 +279,6 @@ export async function runWarmup(
   reporterImpl.note('Summary:');
   reporterImpl.note(`  Browser:       ${result.playwright}${result.playwrightError ? ` (${result.playwrightError})` : ''}`);
   reporterImpl.note(`  Search engine: ${result.searxng}${result.searxngError ? ` (${result.searxngError})` : ''}`);
-  if (trafStatus !== 'skipped') reporterImpl.note(`  Content extractor: ${trafStatus}`);
   if (result.reranker) reporterImpl.note(`  ML reranker:   ${result.reranker}${result.rerankerError ? ` (${result.rerankerError})` : ''}`);
   if (result.firefox) reporterImpl.note(`  Firefox:       ${result.firefox}${result.firefoxError ? ` (${result.firefoxError})` : ''}`);
   if (result.webkit) reporterImpl.note(`  WebKit:        ${result.webkit}${result.webkitError ? ` (${result.webkitError})` : ''}`);

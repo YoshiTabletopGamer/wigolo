@@ -3,7 +3,6 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { getBootstrapState, type BootstrapState } from '../searxng/bootstrap.js';
 import { isProcessAlive } from '../searxng/process.js';
-import { getPythonBin } from '../python-env.js';
 import { getConfig } from '../config.js';
 import { getRerankProvider } from '../providers/rerank-provider.js';
 import { allProviders, providerEnvVar } from '../integrations/cloud/llm/select.js';
@@ -49,15 +48,6 @@ function checkPlaywright(): { installed: boolean; version?: string; browsers: { 
       webkit: probe('webkit'),
     },
   };
-}
-
-function checkPyPackage(name: string, pythonBin: string): { ok: boolean; version?: string } {
-  const importCheck = spawnSync(pythonBin, ['-c', `import ${name}`], { encoding: 'utf-8' });
-  if (importCheck.status !== 0 || importCheck.error) return { ok: false };
-  const versionCheck = spawnSync(pythonBin, ['-c', `import ${name}; print(${name}.__version__)`], { encoding: 'utf-8' });
-  if (versionCheck.status !== 0 || versionCheck.error) return { ok: true };
-  const version = (versionCheck.stdout || '').trim();
-  return { ok: true, version: version || undefined };
 }
 
 async function checkReranker(
@@ -140,12 +130,9 @@ export async function runDoctor(dataDir: string): Promise<number> {
   }
 
   out('');
-  const pythonBin = getPythonBin(dataDir);
-  const traf = checkPyPackage('trafilatura', pythonBin);
   const reranker = await checkReranker();
   const embeddings = checkFastembedCache(dataDir);
   out('[wigolo doctor] Optional components:');
-  out(`  Content extractor:  ${traf.ok ? `installed (trafilatura${traf.version ? ` v${traf.version}` : ''})` : 'not installed'}`);
   if (reranker.installed) {
     const timing = reranker.rerankMs !== undefined ? ` — 5-doc rerank ${reranker.rerankMs}ms` : '';
     out(`  ML reranker:        installed (${reranker.modelId})${timing}`);

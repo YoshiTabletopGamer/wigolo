@@ -96,7 +96,6 @@ describe('runVerify — package probes', () => {
 
   it('marks reranker ok when the provider responds', async () => {
     execSyncMock.mockImplementation((cmd: string) => {
-      if (cmd.includes('import trafilatura')) return Buffer.from('');
       if (cmd.includes('sentence_transformers')) return Buffer.from('384\n');
       throw new Error('unexpected cmd: ' + cmd);
     });
@@ -105,18 +104,15 @@ describe('runVerify — package probes', () => {
     const result = await runVerify('/tmp/wigolo-data', reporter);
 
     expect(result.reranker).toBe('ok');
-    expect(result.trafilatura).toBe('ok');
     expect(result.embeddings).toBe('ok');
     expect(result.embeddingsDim).toBe(384);
     expect(reporter.events).toContain('success:reranker:installed (Xenova/ms-marco-MiniLM-L-6-v2)');
-    expect(reporter.events).toContain('success:trafilatura:installed');
     expect(reporter.events).toContain('success:embeddings:384-dim');
   });
 
   it('marks each package missing when its probe fails', async () => {
     rerankMock.mockRejectedValueOnce(new Error('model load failed'));
     execSyncMock.mockImplementation((cmd: string) => {
-      if (cmd.includes('import trafilatura')) throw new Error('ModuleNotFoundError: trafilatura');
       if (cmd.includes('sentence_transformers')) throw new Error('ModuleNotFoundError: sentence_transformers');
       return Buffer.from('');
     });
@@ -126,17 +122,14 @@ describe('runVerify — package probes', () => {
 
     expect(result.reranker).toBe('missing');
     expect(result.rerankerError).toContain('model load failed');
-    expect(result.trafilatura).toBe('missing');
     expect(result.embeddings).toBe('missing');
     expect(result.embeddingsDim).toBeUndefined();
     expect(reporter.events).toContain('fail:reranker:not installed');
-    expect(reporter.events).toContain('fail:trafilatura:not installed');
     expect(reporter.events).toContain('fail:embeddings:not installed');
   });
 
   it('marks embeddings missing when dim parse fails', async () => {
     execSyncMock.mockImplementation((cmd: string) => {
-      if (cmd.includes('import trafilatura')) return Buffer.from('');
       if (cmd.includes('sentence_transformers')) return Buffer.from('not-a-number\n');
       throw new Error('unexpected cmd: ' + cmd);
     });
@@ -150,7 +143,6 @@ describe('runVerify — package probes', () => {
 
   it('allPassed is true only when every check is ok', async () => {
     execSyncMock.mockImplementation((cmd: string) => {
-      if (cmd.includes('import trafilatura')) return Buffer.from('');
       if (cmd.includes('sentence_transformers')) return Buffer.from('384\n');
       throw new Error('unexpected cmd: ' + cmd);
     });
@@ -178,7 +170,6 @@ describe('runVerify — suggestions on failure', () => {
   it('emits no notes when everything passes', async () => {
     startMock.mockResolvedValue('http://127.0.0.1:8888');
     execSyncMock.mockImplementation((cmd: string) => {
-      if (cmd.includes('import trafilatura')) return Buffer.from('');
       if (cmd.includes('sentence_transformers')) return Buffer.from('384\n');
       throw new Error('unexpected cmd: ' + cmd);
     });

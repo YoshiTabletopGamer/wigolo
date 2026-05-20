@@ -63,17 +63,6 @@ describe('warmup uses venv python', () => {
     delete process.env.WIGOLO_DATA_DIR;
   });
 
-  it('installs trafilatura via venv python when venv exists', async () => {
-    vi.mocked(existsSync).mockImplementation((p) => String(p) === VENV_PYTHON);
-
-    await runWarmup(['--trafilatura']);
-
-    const trafCall = pipCallFor('trafilatura');
-    expect(trafCall).toBeDefined();
-    expect(trafCall![0]).toBe(VENV_PYTHON);
-    expect(trafCall![1]).toEqual(expect.arrayContaining(['-m', 'pip', 'install']));
-  });
-
   it('--reranker does not pip-install any Python packages (cross-encoder is in-process)', async () => {
     vi.mocked(existsSync).mockImplementation((p) => String(p) === VENV_PYTHON);
 
@@ -95,16 +84,6 @@ describe('warmup uses venv python', () => {
     expect(fastembedEmbed).toHaveBeenCalled();
   });
 
-  it('falls back to system python3 when venv does not exist', async () => {
-    vi.mocked(existsSync).mockReturnValue(false);
-
-    await runWarmup(['--trafilatura']);
-
-    const trafCall = pipCallFor('trafilatura');
-    expect(trafCall).toBeDefined();
-    expect(trafCall![0]).toBe('python3');
-    expect(trafCall![1]).toEqual(expect.arrayContaining(['-m', 'pip', 'install']));
-  });
 });
 
 describe('warmup Lightpanda URL', () => {

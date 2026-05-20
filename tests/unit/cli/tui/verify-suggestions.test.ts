@@ -10,7 +10,6 @@ describe('suggestionFor', () => {
   const table: Array<[VerifyCheckId, RegExp]> = [
     ['searxng', /wigolo warmup --force/],
     ['reranker', /wigolo warmup/],
-    ['trafilatura', /wigolo warmup/],
     ['embeddings', /wigolo warmup/],
   ];
 
@@ -28,7 +27,6 @@ describe('suggestionsFromResult', () => {
     searxng: 'ok',
     searxngUrl: 'http://127.0.0.1:8888',
     reranker: 'ok',
-    trafilatura: 'ok',
     embeddings: 'ok',
     embeddingsDim: 384,
     allPassed: true,
@@ -43,7 +41,6 @@ describe('suggestionsFromResult', () => {
       ...okResult,
       searxng: 'failed',
       reranker: 'missing',
-      trafilatura: 'ok',
       embeddings: 'missing',
       allPassed: false,
     };

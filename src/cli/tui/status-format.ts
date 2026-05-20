@@ -4,7 +4,6 @@ export interface StatusBag {
   version: string;
   searxng: 'ready' | 'failed' | 'pending';
   reranker: 'ok' | 'missing';
-  trafilatura: 'ok' | 'missing';
   embeddings: 'ok' | 'missing';
   cache: { pages: number; bytes: number };
   agents: ConnectedAgent[];
@@ -27,7 +26,6 @@ export function formatStatus(bag: StatusBag): string {
   }
 
   lines.push(line('ML reranker',      bag.reranker));
-  lines.push(line('Content extractor', bag.trafilatura));
   lines.push(line('Embeddings',  bag.embeddings));
   lines.push(`  Cache: ${bag.cache.pages} pages, ${formatBytes(bag.cache.bytes)}`);
 

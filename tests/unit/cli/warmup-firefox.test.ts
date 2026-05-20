@@ -49,8 +49,6 @@ const ok = { code: 0, stdout: '', stderr: '', timedOut: false };
 const failWith = (msg: string) => ({ code: 1, stdout: '', stderr: msg, timedOut: false });
 
 const argsOf = (call: unknown[]): string[] => (call[1] as string[]) ?? [];
-const includesArg = (call: unknown[], needle: string): boolean =>
-  argsOf(call).some((a) => String(a).includes(needle));
 const hasFirefoxInstall = (call: unknown[]): boolean => {
   const args = argsOf(call);
   return args.includes('firefox') && args.includes('install');
@@ -196,16 +194,6 @@ describe('warmup --firefox flag', () => {
     expect(calls.find(hasFirefoxInstall)).toBeDefined();
     expect(result.firefox).toBe('ok');
     expect(result.reranker).toBe('ok');
-  });
-
-  it('--firefox does not interfere with --trafilatura', async () => {
-    const result = await runWarmup(['--firefox', '--trafilatura']);
-
-    const calls = vi.mocked(runCommand).mock.calls;
-    expect(calls.find(hasFirefoxInstall)).toBeDefined();
-    expect(calls.find((c) => includesArg(c, 'trafilatura'))).toBeDefined();
-    expect(result.firefox).toBe('ok');
-    expect(result.trafilatura).toBe('ok');
   });
 
   it('handles --force combined with --firefox', async () => {

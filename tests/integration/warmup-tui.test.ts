@@ -43,7 +43,7 @@ describe('runWarmup TUI integration', () => {
     vi.mocked(runCommand).mockResolvedValue({ code: 0, stdout: '', stderr: '', timedOut: false });
     const reporter = new SpyReporter();
 
-    await runWarmup(['--trafilatura', '--reranker', '--firefox'], reporter);
+    await runWarmup(['--reranker', '--firefox'], reporter);
 
     const startIds = reporter.events.filter(e => e.startsWith('start:')).map(e => e.split(':')[1]);
     const finishedIds = reporter.events
@@ -55,21 +55,21 @@ describe('runWarmup TUI integration', () => {
     expect(reporter.events[reporter.events.length - 1]).toBe('finish');
   });
 
-  it('fires fail event when runCommand reports non-zero', async () => {
+  it('fires fail event when a browser install reports non-zero', async () => {
     vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
-      if (args.includes('trafilatura')) {
-        return { code: 1, stdout: '', stderr: 'pip failed', timedOut: false };
+      if (args.includes('firefox')) {
+        return { code: 1, stdout: '', stderr: 'install failed', timedOut: false };
       }
       return { code: 0, stdout: '', stderr: '', timedOut: false };
     });
 
     const reporter = new SpyReporter();
-    const result = await runWarmup(['--trafilatura'], reporter);
+    const result = await runWarmup(['--firefox'], reporter);
 
     expect(reporter.events).toEqual(expect.arrayContaining([
-      expect.stringMatching(/^fail:trafilatura:/),
+      expect.stringMatching(/^fail:firefox:/),
     ]));
-    expect(result.trafilatura).toBe('failed');
+    expect(result.firefox).toBe('failed');
   });
 
   it('emits the final Summary block via note()', async () => {

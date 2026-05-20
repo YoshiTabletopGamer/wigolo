@@ -35,8 +35,8 @@ describe('PlainReporter', () => {
 
   it('fail() writes the failure line with the error message', () => {
     const lines = captureStderr(() => {
-      reporter.start('traf', 'Installing Trafilatura');
-      reporter.fail('traf', 'pip not found');
+      reporter.start('reranker', 'Installing ML reranker');
+      reporter.fail('reranker', 'pip not found');
     });
     expect(lines.join('')).toContain('pip not found');
     expect(lines.join('')).toContain('failed');
