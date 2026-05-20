@@ -70,23 +70,50 @@ def main():
         'prepend_scheme': 'never',
         'split': False,
     }
-    patched_path = model_dir / 'tokenizer_xenova_compat.json'
+
+    # Clean up any leftover patched-tokenizer files from previous versions
+    # (when we used to persist the patched file in model_dir).
+    legacy_patched = model_dir / 'tokenizer_xenova_compat.json'
+    if legacy_patched.exists():
+        try:
+            legacy_patched.unlink()
+        except OSError:
+            pass
+
+    # Patched tokenizer.json written to a temp file rather than the model dir so
+    # concurrent server processes for the same model don't race on the write,
+    # and the model dir stays clean.
+    import tempfile
+    import os
     try:
-        with open(patched_path, 'w', encoding='utf-8') as f:
-            json.dump(tok_json, f, ensure_ascii=False)
+        with tempfile.NamedTemporaryFile(
+            mode='w', encoding='utf-8',
+            prefix=f'tokenizer_xenova_compat_{os.getpid()}_',
+            suffix='.json',
+            delete=False,
+        ) as tf:
+            json.dump(tok_json, tf, ensure_ascii=False)
+            patched_path = tf.name
     except Exception as e:
         sys.stderr.write(f'ERROR writing patched tokenizer.json: {e}\n')
         sys.stderr.flush()
         sys.exit(1)
 
     try:
-        tok = Tokenizer.from_file(str(patched_path))
+        tok = Tokenizer.from_file(patched_path)
         tok.enable_truncation(max_length=max_length, strategy='only_second')
         tok.enable_padding(length=max_length, pad_id=1, pad_token='<pad>')
     except Exception as e:
         sys.stderr.write(f'ERROR tokenizer load failed: {e}\n')
         sys.stderr.flush()
         sys.exit(1)
+    finally:
+        # The tokenizer has already been loaded into memory; we don't need the
+        # patched file on disk anymore. Best-effort cleanup.
+        try:
+            os.unlink(patched_path)
+        except OSError:
+            pass
 
     try:
         sess = ort.InferenceSession(str(model_path), providers=['CPUExecutionProvider'])

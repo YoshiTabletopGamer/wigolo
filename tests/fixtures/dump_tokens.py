@@ -41,12 +41,29 @@ def main():
             'prepend_scheme': 'never',
             'split': False,
         }
-        patched_path = model_dir / 'tokenizer_xenova_compat.json'
-        with open(patched_path, 'w', encoding='utf-8') as f:
-            json.dump(tok_json, f, ensure_ascii=False)
-        tok = Tokenizer.from_file(str(patched_path))
-        tok.enable_truncation(max_length=max_length, strategy='only_second')
-        tok.enable_padding(length=max_length, pad_id=1, pad_token='<pad>')
+        # Write to a process-unique temp path to avoid the race when multiple
+        # test workers spawn dump_tokens.py concurrently against the same
+        # model_dir (each was writing the same tokenizer_xenova_compat.json
+        # and could read mid-write).
+        import tempfile
+        import os
+        with tempfile.NamedTemporaryFile(
+            mode='w', encoding='utf-8',
+            prefix=f'tokenizer_xenova_compat_{os.getpid()}_',
+            suffix='.json',
+            delete=False,
+        ) as tf:
+            json.dump(tok_json, tf, ensure_ascii=False)
+            patched_path = tf.name
+        try:
+            tok = Tokenizer.from_file(patched_path)
+            tok.enable_truncation(max_length=max_length, strategy='only_second')
+            tok.enable_padding(length=max_length, pad_id=1, pad_token='<pad>')
+        finally:
+            try:
+                os.unlink(patched_path)
+            except OSError:
+                pass
     except Exception as e:
         sys.stdout.write(json.dumps({'error': f'tokenizer load failed: {e}'}))
         return
