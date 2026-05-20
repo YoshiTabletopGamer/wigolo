@@ -168,6 +168,19 @@ export interface SchemaExtractionResult {
 
 // --- Search layer types ---
 
+/**
+ * Optional agent-supplied context that the v1 search pipeline uses to refine
+ * ranking and dedup. All fields are advisory — the engine never requires them.
+ */
+export interface AgentContext {
+  /** Surrounding code, prior assistant turn, or task framing. */
+  text?: string;
+  /** URLs the agent has already seen recently; v1 dedups against these. */
+  recent_urls?: string[];
+  /** Optional one-line task framing — included in the embedded query if `text` empty. */
+  intent?: string;
+}
+
 export interface SearchInput {
   query: string | string[];
   max_results?: number;
@@ -192,6 +205,7 @@ export interface SearchInput {
   include_full_markdown?: boolean;
   citation_format?: CitationFormat;
   mode?: Mode;
+  agent_context?: AgentContext;
 }
 
 export interface SearchResultItem {

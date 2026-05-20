@@ -190,6 +190,17 @@ export const SEARCH_TOOL_SCHEMA = {
       enum: ['cache', 'default', 'stealth'],
       description: "cache=single-engine, no rerank, stale cache ok. default=standard multi-engine search. stealth=full browser for JS-heavy result pages.",
     },
+    agent_context: {
+      type: 'object',
+      description:
+        'Optional agent context for ranking + dedup. text is concatenated with the query before embedding; recent_urls are dropped from results.',
+      properties: {
+        text: { type: 'string', description: 'Surrounding code / prior turn / task framing.' },
+        recent_urls: { type: 'array', items: { type: 'string' }, description: 'URLs the agent has already seen.' },
+        intent: { type: 'string', description: 'One-line task framing. Used when text is omitted.' },
+      },
+      additionalProperties: false,
+    },
   },
   required: ['query'],
 };

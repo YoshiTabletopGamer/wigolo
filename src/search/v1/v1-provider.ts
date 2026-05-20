@@ -14,6 +14,8 @@ import type {
   StageResult,
 } from '../../types.js';
 import { runV1Search } from './orchestrator.js';
+import { applyContextRank } from './context-rank.js';
+import { dedupAgainstRecentUrls } from './recent-cache-dedup.js';
 
 export class V1SearchProvider implements SearchProvider {
   readonly name = 'v1' as const;
@@ -42,7 +44,18 @@ export class V1SearchProvider implements SearchProvider {
       excludeDomains: input.exclude_domains,
     });
 
-    const items: SearchResultItem[] = result.results.map((r) => ({
+    let processed = result.results;
+
+    if (input.agent_context?.text || input.agent_context?.intent) {
+      const contextText = input.agent_context.text ?? input.agent_context.intent;
+      processed = await applyContextRank(processed, query, contextText);
+    }
+
+    if (input.agent_context?.recent_urls?.length) {
+      processed = dedupAgainstRecentUrls(processed, input.agent_context.recent_urls);
+    }
+
+    const items: SearchResultItem[] = processed.map((r) => ({
       title: r.title,
       url: r.url,
       snippet: r.snippet,
