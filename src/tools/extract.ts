@@ -10,6 +10,12 @@ import { extractStructured } from '../extraction/structured.js';
 import { getCachedContent, isExpired } from '../cache/store.js';
 import { fetchWithPlaywright } from '../fetch/playwright-tier.js';
 import { createLogger } from '../logger.js';
+import {
+  isNamedSchemaType,
+  extractNamedSchema,
+  NAMED_SCHEMAS,
+} from '../extraction/v1/schemas/index.js';
+import { isLocalLlmEnabled, extractWithLocalLlm } from '../extraction/v1/local-llm.js';
 
 const log = createLogger('extract');
 
@@ -54,6 +60,24 @@ export async function handleExtract(
     };
   }
 
+  if (input.named_schema && input.schema) {
+    return {
+      ok: false,
+      error: 'invalid_input',
+      error_reason: 'schema and named_schema are mutually exclusive',
+      stage: 'extract',
+    };
+  }
+
+  if (input.named_schema && !isNamedSchemaType(input.named_schema)) {
+    return {
+      ok: false,
+      error: 'invalid_input',
+      error_reason: `Unknown named_schema. Valid: ${NAMED_SCHEMAS.join(', ')}`,
+      stage: 'extract',
+    };
+  }
+
   if (mode === 'selector' && !input.css_selector) {
     return {
       ok: false,
@@ -63,7 +87,7 @@ export async function handleExtract(
     };
   }
 
-  if (mode === 'schema' && (!input.schema || !input.schema.properties)) {
+  if (mode === 'schema' && !input.named_schema && (!input.schema || !input.schema.properties)) {
     return {
       ok: false,
       error: 'invalid_input',
@@ -74,6 +98,45 @@ export async function handleExtract(
 
   try {
     const { html, sourceUrl } = await resolveHtml(input, router);
+
+    if (input.named_schema) {
+      const namedData = await extractNamedSchema(input.named_schema, html, sourceUrl ?? input.url ?? '');
+      if (namedData === null) {
+        return {
+          ok: true,
+          data: {
+            data: {},
+            source_url: sourceUrl,
+            mode: 'schema',
+            error: `No ${input.named_schema} data found on page`,
+          },
+        };
+      }
+      return {
+        ok: true,
+        data: {
+          data: namedData as unknown as Record<string, unknown>,
+          source_url: sourceUrl,
+          mode: 'schema',
+        },
+      };
+    }
+
+    if (mode === 'schema' && input.schema && isLocalLlmEnabled()) {
+      const llmData = await extractWithLocalLlm({
+        schema: input.schema as unknown as Record<string, unknown>,
+        html,
+        url: sourceUrl ?? input.url ?? '',
+      });
+      return {
+        ok: true,
+        data: {
+          data: (llmData ?? {}) as Record<string, unknown>,
+          source_url: sourceUrl,
+          mode: 'schema',
+        },
+      };
+    }
 
     let data: ExtractOutput['data'];
 

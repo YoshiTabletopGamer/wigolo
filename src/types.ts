@@ -514,6 +514,14 @@ export interface ChangeReport {
 
 // --- Extract tool types ---
 
+export type NamedSchemaType =
+  | 'Article'
+  | 'Recipe'
+  | 'Product'
+  | 'CodeSnippet'
+  | 'Paper'
+  | 'EventListing';
+
 export interface ExtractInput {
   url?: string;
   html?: string;
@@ -521,6 +529,7 @@ export interface ExtractInput {
   css_selector?: string;
   multiple?: boolean;
   schema?: JsonSchema;
+  named_schema?: NamedSchemaType;
   execution_mode?: Mode;
 }
 

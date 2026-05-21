@@ -310,6 +310,11 @@ export const EXTRACT_TOOL_SCHEMA = {
       type: 'object',
       description: 'JSON Schema defining fields to extract. Field names are matched against page content via CSS classes, ARIA labels, microdata, and JSON-LD. Required when mode="schema".',
     },
+    named_schema: {
+      type: 'string',
+      enum: ['Article', 'Recipe', 'Product', 'CodeSnippet', 'Paper', 'EventListing'],
+      description: 'Extract page data into a strict named schema (heuristic only; no LLM required). Mutually exclusive with `schema`.',
+    },
   },
 };
 

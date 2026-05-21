@@ -413,6 +413,56 @@ describe('handleExtract mode=metadata with JSON-LD', () => {
     expect(data.jsonld[0]['@type']).toBe('Article');
   });
 
+  it('rejects when both schema and named_schema are provided', async () => {
+    const __r_result = await handleExtract(
+      {
+        html: '<html></html>',
+        named_schema: 'Article',
+        schema: { type: 'object', properties: { x: { type: 'string' } } },
+      },
+      mockRouter(),
+    );
+    const result = __r_result.ok ? __r_result.data : ({ ...__r_result } as any);
+    expect(result.error_reason).toMatch(/mutually exclusive/);
+  });
+
+  it('rejects unknown named_schema values', async () => {
+    const __r_result = await handleExtract(
+      { html: '<html></html>', named_schema: 'NotAType' as never },
+      mockRouter(),
+    );
+    const result = __r_result.ok ? __r_result.data : ({ ...__r_result } as any);
+    expect(result.error_reason).toMatch(/Unknown named_schema/);
+  });
+
+  it('dispatches named_schema=Article and returns structured data', async () => {
+    const articleHtml = `<!doctype html><html><head><title>Hello</title>
+      <meta property="article:published_time" content="2024-05-01T10:00:00Z">
+    </head><body><article>
+      <p>This is a long article about systems engineering and replication.</p>
+      <p>It is sufficiently long to satisfy readability heuristics for content.</p>
+      <p>Another paragraph adds enough body text to make extraction succeed.</p>
+    </article></body></html>`;
+    const __r_output = await handleExtract(
+      { html: articleHtml, named_schema: 'Article' },
+      mockRouter(),
+    );
+    const output = __r_output.ok ? __r_output.data : ({ ...__r_output } as any);
+    expect(output.mode).toBe('schema');
+    expect(output.data).toBeTruthy();
+    expect(typeof (output.data as any).title === 'string' || (output.data as any).error).toBeTruthy();
+  });
+
+  it('returns empty named_schema result with error message when no data found', async () => {
+    const __r_output = await handleExtract(
+      { html: '<html><body></body></html>', named_schema: 'Recipe' },
+      mockRouter(),
+    );
+    const output = __r_output.ok ? __r_output.data : ({ ...__r_output } as any);
+    expect(output.mode).toBe('schema');
+    expect(output.error).toMatch(/No Recipe data found/);
+  });
+
   it('omits jsonld key when no JSON-LD blocks found', async () => {
     vi.mocked(extractMetadata).mockReturnValue({ title: 'Plain' });
     vi.mocked(extractJsonLd).mockReturnValue([]);
