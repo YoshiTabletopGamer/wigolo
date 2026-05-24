@@ -16,6 +16,7 @@ import type {
 import { runV1Search } from './orchestrator.js';
 import { applyContextRank } from './context-rank.js';
 import { dedupAgainstRecentUrls } from './recent-cache-dedup.js';
+import { runSynthesis } from '../answer-synthesis.js';
 
 const RRF_K = 60;
 
@@ -62,7 +63,7 @@ function fuseRankedLists(lists: RawSearchResult[][]): RawSearchResult[] {
 export class V1SearchProvider implements SearchProvider {
   readonly name = 'v1' as const;
 
-  async search(input: SearchInput, _ctx: SearchContext): Promise<StageResult<SearchOutput>> {
+  async search(input: SearchInput, ctx: SearchContext): Promise<StageResult<SearchOutput>> {
     const isArray = Array.isArray(input.query);
     const queries = isArray
       ? normalizeArrayQueries(input.query as string[])
@@ -153,6 +154,31 @@ export class V1SearchProvider implements SearchProvider {
 
     if (allDegraded) {
       data.warning = 'all engines failed or no results';
+    }
+
+    if (input.format === 'answer' || input.format === 'stream_answer') {
+      const synthResult = await runSynthesis({
+        query: displayQuery,
+        results: items,
+        samplingServer: ctx.samplingServer,
+        maxTotalChars: 0,
+      });
+
+      if (synthResult.ok) {
+        data.answer = synthResult.data.answer;
+        if (synthResult.data.citations.length > 0) {
+          data.citations = synthResult.data.citations;
+        }
+        if (synthResult.data.warning) {
+          data.warning = synthResult.data.warning;
+        }
+      } else {
+        data.warning = `synthesis failed: ${synthResult.error_reason}`;
+      }
+
+      if (input.format === 'stream_answer') {
+        data.streaming = true;
+      }
     }
 
     return { ok: true, data };
