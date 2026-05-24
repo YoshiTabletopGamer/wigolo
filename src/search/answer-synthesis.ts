@@ -222,29 +222,11 @@ export async function runSynthesis(
     };
   }
 
-  if (samplingServer) {
-    try {
-      const r = await synthesizeAnswer(results, query, samplingServer);
-      if (r.answer && !r.fallback) {
-        return {
-          ok: true,
-          data: {
-            answer: r.answer,
-            citations: r.citations ?? [],
-            warning: r.warning,
-            fallback_level: 1,
-          },
-        };
-      }
-    } catch (err) {
-      log.warn('synthesis level-1 sampling failed, falling through to heuristic', { error: String(err) });
-    }
-  }
-
-  // Level 1b: configured WIGOLO_LLM_PROVIDER (Gemini/OpenAI/Anthropic/...).
-  // Same prompt as MCP sampling — research and agent already use this path,
-  // and routing search format=answer through the same backend keeps synthesis
-  // consistent across tools when the host client doesn't expose sampling.
+  // Level 1a: configured WIGOLO_LLM_PROVIDER (Gemini/OpenAI/Anthropic/...).
+  // Checked BEFORE MCP sampling so search/format=answer matches the explicit
+  // contract that research + agent already use (they call runLlmText directly).
+  // When the operator wires WIGOLO_LLM_PROVIDER, that's the synthesis backend
+  // for every tool — host-provided sampling is a fallback, not an override.
   const llmConfigured = isLlmConfigured();
   let llmFailureReason: string | undefined;
   if (llmConfigured) {
@@ -271,7 +253,28 @@ export async function runSynthesis(
       }
     } catch (err) {
       llmFailureReason = err instanceof Error ? err.message : String(err);
-      log.warn('synthesis level-1 LLM provider failed, falling through to heuristic', { error: llmFailureReason });
+      log.warn('synthesis level-1a LLM provider failed, falling through to sampling', { error: llmFailureReason });
+    }
+  }
+
+  // Level 1b: MCP sampling (host-provided). Reached only if WIGOLO_LLM_PROVIDER
+  // is unset or its call failed — otherwise the operator's explicit choice wins.
+  if (samplingServer) {
+    try {
+      const r = await synthesizeAnswer(results, query, samplingServer);
+      if (r.answer && !r.fallback) {
+        return {
+          ok: true,
+          data: {
+            answer: r.answer,
+            citations: r.citations ?? [],
+            warning: r.warning,
+            fallback_level: 1,
+          },
+        };
+      }
+    } catch (err) {
+      log.warn('synthesis level-1b sampling failed, falling through to heuristic', { error: String(err) });
     }
   }
 
