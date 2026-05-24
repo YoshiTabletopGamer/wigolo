@@ -19,8 +19,14 @@ const KNOWN_DOCS_HOSTS = new Set([
 
 const KNOWN_SUBJECT_DOMAIN: Record<string, string[]> = {
   redis: ['redis.io', 'redis.com'],
-  postgres: ['postgresql.org'],
-  postgresql: ['postgresql.org'],
+  postgres: ['postgresql.org', 'neon.tech'],
+  postgresql: ['postgresql.org', 'neon.tech'],
+  pg: ['postgresql.org', 'neon.tech', 'edb.com'],
+  neon: ['neon.tech'],
+  pgedge: ['pgedge.com'],
+  cockroachdb: ['cockroachlabs.com'],
+  cockroach: ['cockroachlabs.com'],
+  supabase: ['supabase.com', 'supabase.io'],
   mysql: ['mysql.com', 'dev.mysql.com'],
   python: ['python.org', 'docs.python.org'],
   react: ['react.dev', 'reactjs.org'],
@@ -59,7 +65,15 @@ function extractSubjects(query: string): string[] {
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .filter((t) => t.length >= 2 && t.length <= 16 && !STOPWORDS.has(t));
-  return [...new Set(tokens)];
+  // Versioned tokens like "pg18", "ts5", "py312" should also match their
+  // base alias ("pg", "ts", "py") so authoritative domains still get boosted
+  // when users include a release number inline with the project name.
+  const expanded = new Set<string>(tokens);
+  for (const t of tokens) {
+    const stripped = t.replace(/\d+$/, '');
+    if (stripped && stripped !== t && stripped.length >= 2) expanded.add(stripped);
+  }
+  return [...expanded];
 }
 
 function hostOf(url: string): string | null {
