@@ -19,12 +19,28 @@ vi.mock('../../../../src/search/answer-synthesis.js', () => ({
   })),
 }));
 
+vi.mock('../../../../src/search/content-fetch.js', () => ({
+  fetchContentForResults: vi.fn(async () => undefined),
+}));
+
+vi.mock('../../../../src/search/evidence.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/search/evidence.js')>();
+  return {
+    ...actual,
+    applyEvidenceDefault: vi.fn(async () => undefined),
+  };
+});
+
 import { V1SearchProvider } from '../../../../src/search/v1/v1-provider.js';
 import { runV1Search } from '../../../../src/search/v1/orchestrator.js';
 import { runSynthesis } from '../../../../src/search/answer-synthesis.js';
+import { fetchContentForResults } from '../../../../src/search/content-fetch.js';
+import { applyEvidenceDefault } from '../../../../src/search/evidence.js';
 
 const runV1SearchMock = vi.mocked(runV1Search);
 const runSynthesisMock = vi.mocked(runSynthesis);
+const fetchContentMock = vi.mocked(fetchContentForResults);
+const applyEvidenceDefaultMock = vi.mocked(applyEvidenceDefault);
 
 const ctx = { router: undefined } as never;
 
@@ -204,6 +220,136 @@ describe('V1SearchProvider', () => {
       if (result.ok) {
         expect(result.data.warning).toBeUndefined();
       }
+    });
+  });
+
+  describe('content fetch + evidence wiring', () => {
+    it('skips content fetch when ctx.router is missing', async () => {
+      runV1SearchMock.mockClear();
+      fetchContentMock.mockClear();
+      applyEvidenceDefaultMock.mockClear();
+      runV1SearchMock.mockResolvedValue({
+        results: [{ title: 't', url: 'https://x', snippet: 's', relevance_score: 1, engine: 'b' }],
+        enginesUsed: ['b'],
+        degraded: false,
+      });
+
+      const provider = new V1SearchProvider();
+      await provider.search({ query: 'q', max_results: 5 }, ctx);
+
+      expect(fetchContentMock).not.toHaveBeenCalled();
+      // applyEvidenceDefault should also be skipped — no content means useless evidence.
+      expect(applyEvidenceDefaultMock).not.toHaveBeenCalled();
+    });
+
+    it('fetches content for items when ctx.router is present and include_content is default', async () => {
+      runV1SearchMock.mockClear();
+      fetchContentMock.mockClear();
+      applyEvidenceDefaultMock.mockClear();
+      runV1SearchMock.mockResolvedValue({
+        results: [
+          { title: 'A', url: 'https://a.example', snippet: 'sa', relevance_score: 1, engine: 'b' },
+          { title: 'B', url: 'https://b.example', snippet: 'sb', relevance_score: 0.5, engine: 'b' },
+        ],
+        enginesUsed: ['b'],
+        degraded: false,
+      });
+
+      const router = { fetch: vi.fn() } as never;
+      const provider = new V1SearchProvider();
+      const result = await provider.search(
+        { query: 'q', max_results: 5 },
+        { router, samplingServer: undefined } as never,
+      );
+
+      expect(fetchContentMock).toHaveBeenCalledOnce();
+      const [items, passedRouter] = fetchContentMock.mock.calls[0];
+      expect(passedRouter).toBe(router);
+      expect(items.map((i: { url: string }) => i.url)).toEqual(['https://a.example', 'https://b.example']);
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(typeof result.data.fetch_time_ms).toBe('number');
+    });
+
+    it('skips content fetch when input.include_content is explicitly false', async () => {
+      runV1SearchMock.mockClear();
+      fetchContentMock.mockClear();
+      applyEvidenceDefaultMock.mockClear();
+      runV1SearchMock.mockResolvedValue({
+        results: [{ title: 't', url: 'https://x', snippet: 's', relevance_score: 1, engine: 'b' }],
+        enginesUsed: ['b'],
+        degraded: false,
+      });
+
+      const router = { fetch: vi.fn() } as never;
+      const provider = new V1SearchProvider();
+      await provider.search(
+        { query: 'q', include_content: false, max_results: 5 },
+        { router } as never,
+      );
+
+      expect(fetchContentMock).not.toHaveBeenCalled();
+      expect(applyEvidenceDefaultMock).not.toHaveBeenCalled();
+    });
+
+    it('calls applyEvidenceDefault when content was fetched and format is unset', async () => {
+      runV1SearchMock.mockClear();
+      fetchContentMock.mockClear();
+      applyEvidenceDefaultMock.mockClear();
+      runV1SearchMock.mockResolvedValue({
+        results: [{ title: 'A', url: 'https://a.example', snippet: 'sa', relevance_score: 1, engine: 'b' }],
+        enginesUsed: ['b'],
+        degraded: false,
+      });
+
+      const router = { fetch: vi.fn() } as never;
+      const provider = new V1SearchProvider();
+      await provider.search({ query: 'q', max_results: 5 }, { router } as never);
+
+      expect(applyEvidenceDefaultMock).toHaveBeenCalledOnce();
+      const [, , passedItems, passedQuery] = applyEvidenceDefaultMock.mock.calls[0];
+      expect(passedItems.map((i: { url: string }) => i.url)).toEqual(['https://a.example']);
+      expect(passedQuery).toBe('q');
+    });
+
+    it('does not call applyEvidenceDefault when format=answer (synth path owns citations)', async () => {
+      runV1SearchMock.mockClear();
+      fetchContentMock.mockClear();
+      applyEvidenceDefaultMock.mockClear();
+      runV1SearchMock.mockResolvedValue({
+        results: [{ title: 'A', url: 'https://a.example', snippet: 'sa', relevance_score: 1, engine: 'b' }],
+        enginesUsed: ['b'],
+        degraded: false,
+      });
+
+      const router = { fetch: vi.fn() } as never;
+      const provider = new V1SearchProvider();
+      await provider.search(
+        { query: 'q', format: 'answer', max_results: 5 },
+        { router } as never,
+      );
+
+      expect(fetchContentMock).toHaveBeenCalledOnce();
+      expect(applyEvidenceDefaultMock).not.toHaveBeenCalled();
+    });
+
+    it('does not fail when content fetch and evidence both run on a degraded search', async () => {
+      runV1SearchMock.mockClear();
+      fetchContentMock.mockClear();
+      applyEvidenceDefaultMock.mockClear();
+      runV1SearchMock.mockResolvedValue({
+        results: [],
+        enginesUsed: [],
+        degraded: true,
+      });
+
+      const router = { fetch: vi.fn() } as never;
+      const provider = new V1SearchProvider();
+      const result = await provider.search({ query: 'q', max_results: 5 }, { router } as never);
+
+      expect(result.ok).toBe(true);
+      // No items → both skipped.
+      expect(fetchContentMock).not.toHaveBeenCalled();
+      expect(applyEvidenceDefaultMock).not.toHaveBeenCalled();
     });
   });
 

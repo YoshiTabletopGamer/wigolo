@@ -17,8 +17,13 @@ import { runV1Search } from './orchestrator.js';
 import { applyContextRank } from './context-rank.js';
 import { dedupAgainstRecentUrls } from './recent-cache-dedup.js';
 import { runSynthesis } from '../answer-synthesis.js';
-import { renderCitationsXml } from '../evidence.js';
+import { applyEvidenceDefault, renderCitationsXml } from '../evidence.js';
+import { fetchContentForResults } from '../content-fetch.js';
+import { getConfig } from '../../config.js';
 import type { Citation } from '../../types.js';
+
+const DEFAULT_CONTENT_MAX_CHARS = 30000;
+const DEFAULT_MAX_TOTAL_CHARS = 50000;
 
 const RRF_K = 60;
 
@@ -145,13 +150,34 @@ export class V1SearchProvider implements SearchProvider {
       ...(r.published_date ? { published_date: r.published_date } : {}),
     }));
 
-    const elapsed = Date.now() - start;
+    const searchElapsed = Date.now() - start;
+    let fetchElapsed = 0;
+    let contentFetched = false;
+
+    const includeContent = input.include_content !== false;
+    if (includeContent && ctx.router && items.length > 0) {
+      const config = getConfig();
+      const fetchStart = Date.now();
+      await fetchContentForResults(items, ctx.router, {
+        contentMaxChars: input.content_max_chars ?? DEFAULT_CONTENT_MAX_CHARS,
+        maxContentChars: input.max_content_chars,
+        maxTotalChars: input.max_total_chars ?? DEFAULT_MAX_TOTAL_CHARS,
+        fetchTimeoutMs: config.searchFetchTimeoutMs,
+        totalDeadline: start + config.searchTotalTimeoutMs,
+        forceRefresh: input.force_refresh ?? false,
+        maxFetches: input.max_fetches,
+      });
+      fetchElapsed = Date.now() - fetchStart;
+      contentFetched = true;
+    }
+
     const data: SearchOutput = {
       results: items,
       query: displayQuery,
       engines_used: enginesUsed,
-      total_time_ms: elapsed,
-      search_time_ms: elapsed,
+      total_time_ms: Date.now() - start,
+      search_time_ms: searchElapsed,
+      fetch_time_ms: fetchElapsed,
     };
 
     if (allDegraded) {
@@ -163,7 +189,7 @@ export class V1SearchProvider implements SearchProvider {
         query: displayQuery,
         results: items,
         samplingServer: ctx.samplingServer,
-        maxTotalChars: 0,
+        maxTotalChars: input.max_total_chars ?? DEFAULT_MAX_TOTAL_CHARS,
       });
 
       if (synthResult.ok) {
@@ -172,7 +198,9 @@ export class V1SearchProvider implements SearchProvider {
           data.citations = synthResult.data.citations;
         }
         if (synthResult.data.warning) {
-          data.warning = synthResult.data.warning;
+          data.warning = synthResult.data.warning
+            ? (data.warning ? `${data.warning}; ${synthResult.data.warning}` : synthResult.data.warning)
+            : data.warning;
         }
       } else {
         data.warning = `synthesis failed: ${synthResult.error_reason}`;
@@ -181,6 +209,10 @@ export class V1SearchProvider implements SearchProvider {
       if (input.format === 'stream_answer') {
         data.streaming = true;
       }
+    } else if (items.length > 0 && contentFetched) {
+      // Evidence + citations defaults require fetched content to be useful;
+      // skip when content fetch was disabled or no router was available.
+      await applyEvidenceDefault(input, data, items, displayQuery);
     }
 
     if (input.citation_format) {
@@ -193,7 +225,7 @@ export class V1SearchProvider implements SearchProvider {
         }));
         if (built.length > 0) data.citations = built;
       }
-      if (input.citation_format === 'anthropic_tags' && data.citations && data.citations.length > 0) {
+      if (input.citation_format === 'anthropic_tags' && data.citations && data.citations.length > 0 && !data.citations_xml) {
         data.citations_xml = renderCitationsXml(data.citations);
       }
     }
