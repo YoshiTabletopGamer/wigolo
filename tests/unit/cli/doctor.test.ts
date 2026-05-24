@@ -45,7 +45,7 @@ vi.mock('../../../src/cache/db.js', () => {
     isVecExtensionLoaded: vi.fn(() => true),
   };
 });
-vi.mock('../../../src/search/v1/rss/feed-config.js', () => ({
+vi.mock('../../../src/search/core/rss/feed-config.js', () => ({
   loadFeedConfig: vi.fn(() => ({ feeds: [], sources: [] })),
 }));
 
@@ -54,7 +54,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { runDoctor } from '../../../src/cli/doctor.js';
 import { getEmbedProvider } from '../../../src/providers/embed-provider.js';
 import { initDatabase } from '../../../src/cache/db.js';
-import { loadFeedConfig } from '../../../src/search/v1/rss/feed-config.js';
+import { loadFeedConfig } from '../../../src/search/core/rss/feed-config.js';
 
 function okProc(stdout = ''): ReturnType<typeof spawnSync> {
   return { status: 0, stdout, stderr: '', signal: null, pid: 1, output: [], error: undefined } as ReturnType<typeof spawnSync>;
@@ -235,7 +235,7 @@ describe('runDoctor', () => {
 
     it('reports embedding provider ready with model id and dim', async () => {
       await runDoctor('/tmp/.wigolo');
-      expect(outBuffer).toMatch(/V1 embeddings:/);
+      expect(outBuffer).toMatch(/Core embeddings:/);
       expect(outBuffer).toMatch(/provider:\s+ready \(fastembed BAAI\/bge-small-en-v1\.5, dim=384\)/);
     });
 
@@ -249,7 +249,7 @@ describe('runDoctor', () => {
 
     it('reports sqlite-vec extension loaded with version', async () => {
       await runDoctor('/tmp/.wigolo');
-      expect(outBuffer).toMatch(/V1 sqlite-vec:/);
+      expect(outBuffer).toMatch(/Core sqlite-vec:/);
       expect(outBuffer).toMatch(/extension:\s+loaded \(vec_version 0\.1\.7-alpha\.2\)/);
     });
 

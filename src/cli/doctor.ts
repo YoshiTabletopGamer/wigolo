@@ -8,7 +8,7 @@ import { getConfig } from '../config.js';
 import { getRerankProvider } from '../providers/rerank-provider.js';
 import { getEmbedProvider } from '../providers/embed-provider.js';
 import { initDatabase, closeDatabase } from '../cache/db.js';
-import { loadFeedConfig } from '../search/v1/rss/feed-config.js';
+import { loadFeedConfig } from '../search/core/rss/feed-config.js';
 import { isTelemetryEnabled } from './telemetry.js';
 import { allProviders, providerEnvVar, selectProvider } from '../integrations/cloud/llm/select.js';
 import { resolveModel, providerDefaultModel, providerModelEnvVar } from '../integrations/cloud/llm/model-select.js';
@@ -213,6 +213,15 @@ async function runDoctorInner(dataDir: string): Promise<number> {
   out(`  per-request: ${cfg.llmMaxCallsPerRequest} call(s) max`);
 
   out('');
+  out('[wigolo doctor] Search backend:');
+  const rawBackend = process.env.WIGOLO_SEARCH;
+  const aliased = rawBackend === 'v1' ? 'core (alias from v1, deprecated)' : null;
+  const normalized = rawBackend === undefined || rawBackend === '' || rawBackend === 'v1'
+    ? 'core'
+    : rawBackend;
+  out(`  Backend:       ${aliased ?? normalized} (default: core)`);
+
+  out('');
   const state = getBootstrapState(dataDir) as BootstrapState | null;
   out('[wigolo doctor] Search engine:');
   if (!state) {
@@ -260,7 +269,7 @@ async function runDoctorInner(dataDir: string): Promise<number> {
     out(`  - Force retry now: npx @staticn0va/wigolo warmup --force`);
   }
 
-  await checkV1Embeddings();
+  await checkCoreEmbeddings();
   await checkSqliteVec(dataDir);
   checkRssFeeds(dataDir);
   checkTelemetryStatus();
@@ -270,9 +279,9 @@ async function runDoctorInner(dataDir: string): Promise<number> {
   return degraded ? 1 : 0;
 }
 
-async function checkV1Embeddings(): Promise<void> {
+async function checkCoreEmbeddings(): Promise<void> {
   out('');
-  out('[wigolo doctor] V1 embeddings:');
+  out('[wigolo doctor] Core embeddings:');
   try {
     const provider = await getEmbedProvider();
     out(`  provider:      ready (fastembed ${provider.modelId}, dim=${provider.dim})`);
@@ -284,7 +293,7 @@ async function checkV1Embeddings(): Promise<void> {
 
 async function checkSqliteVec(dataDir: string): Promise<void> {
   out('');
-  out('[wigolo doctor] V1 sqlite-vec:');
+  out('[wigolo doctor] Core sqlite-vec:');
   let opened = false;
   try {
     const db = initDatabase(join(dataDir, 'wigolo.db'));

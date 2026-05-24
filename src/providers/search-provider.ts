@@ -23,18 +23,20 @@ export interface SearchContext {
 export interface SearchProvider {
   search(input: SearchInput, ctx: SearchContext): Promise<StageResult<SearchOutput>>;
   /** Best-effort name for telemetry/logging. */
-  readonly name: 'searxng' | 'v1';
+  readonly name: 'core' | 'searxng' | 'hybrid';
 }
 
 let cached: Promise<SearchProvider> | null = null;
 
 export function getSearchProvider(): Promise<SearchProvider> {
   if (cached) return cached;
-  // Read the raw env directly so unknown values surface to the caller. Config
-  // narrows unknown to 'searxng' for safe downstream consumption, but here we
-  // want explicit visibility per the v1-engine plan.
+  // Read the raw env directly so unknown values surface to the caller.
   const raw = process.env.WIGOLO_SEARCH;
-  const which = raw === undefined || raw === '' ? 'searxng' : raw;
+  let which = raw === undefined || raw === '' ? 'core' : raw;
+  if (which === 'v1') {
+    log.warn('WIGOLO_SEARCH=v1 is deprecated, use WIGOLO_SEARCH=core (alias kept for one release)');
+    which = 'core';
+  }
   if (which === 'searxng') {
     cached = import('../search/legacy/searxng-provider.js').then(
       m => {
@@ -43,17 +45,26 @@ export function getSearchProvider(): Promise<SearchProvider> {
       },
       err => { cached = null; throw err; },
     );
-  } else if (which === 'v1') {
-    cached = import('../search/v1/v1-provider.js').then(
+  } else if (which === 'core') {
+    cached = import('../search/core/core-provider.js').then(
       m => {
-        log.info('search provider selected', { provider: 'v1', impl: 'v1' });
-        return new m.V1SearchProvider();
+        log.info('search provider selected', { provider: 'core' });
+        return new m.CoreSearchProvider();
+      },
+      err => { cached = null; throw err; },
+    );
+  } else if (which === 'hybrid') {
+    log.warn('WIGOLO_SEARCH=hybrid: smart fallback not yet implemented (Phase 1), running core');
+    cached = import('../search/core/core-provider.js').then(
+      m => {
+        log.info('search provider selected', { provider: 'hybrid', impl: 'core' });
+        return new m.CoreSearchProvider();
       },
       err => { cached = null; throw err; },
     );
   } else {
     return Promise.reject(new Error(
-      `Unknown WIGOLO_SEARCH value: ${which}. Use 'v1' or 'searxng'.`,
+      `Unknown WIGOLO_SEARCH value: ${which}. Use 'core' (default), 'searxng', or 'hybrid'.`,
     ));
   }
   return cached;

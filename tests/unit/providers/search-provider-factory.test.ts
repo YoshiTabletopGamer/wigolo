@@ -1,50 +1,79 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { getSearchProvider, _resetSearchProviderForTest } from '../../../src/providers/search-provider.js';
 import { resetConfig } from '../../../src/config.js';
 import { LegacySearxngProvider } from '../../../src/search/legacy/searxng-provider.js';
-import { V1SearchProvider } from '../../../src/search/v1/v1-provider.js';
+import { CoreSearchProvider } from '../../../src/search/core/core-provider.js';
 
 describe('getSearchProvider', () => {
   let originalEnv: string | undefined;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  let stderrOutput: string;
+
   beforeEach(() => {
     originalEnv = process.env.WIGOLO_SEARCH;
     _resetSearchProviderForTest();
     resetConfig();
+    stderrOutput = '';
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      stderrOutput += String(chunk);
+      return true;
+    });
   });
+
   afterEach(() => {
     if (originalEnv === undefined) delete process.env.WIGOLO_SEARCH;
     else process.env.WIGOLO_SEARCH = originalEnv;
     _resetSearchProviderForTest();
     resetConfig();
+    stderrSpy.mockRestore();
   });
 
-  it('returns LegacySearxngProvider by default', async () => {
+  it('returns CoreSearchProvider by default (unset)', async () => {
     delete process.env.WIGOLO_SEARCH;
-    expect(await getSearchProvider()).toBeInstanceOf(LegacySearxngProvider);
+    const provider = await getSearchProvider();
+    expect(provider).toBeInstanceOf(CoreSearchProvider);
+    expect(provider.name).toBe('core');
+  });
+
+  it('returns CoreSearchProvider when WIGOLO_SEARCH=core', async () => {
+    process.env.WIGOLO_SEARCH = 'core';
+    const provider = await getSearchProvider();
+    expect(provider).toBeInstanceOf(CoreSearchProvider);
+    expect(provider.name).toBe('core');
   });
 
   it('returns LegacySearxngProvider when WIGOLO_SEARCH=searxng', async () => {
     process.env.WIGOLO_SEARCH = 'searxng';
-    expect(await getSearchProvider()).toBeInstanceOf(LegacySearxngProvider);
+    const provider = await getSearchProvider();
+    expect(provider).toBeInstanceOf(LegacySearxngProvider);
+    expect(provider.name).toBe('searxng');
   });
 
-  it('returns V1SearchProvider when WIGOLO_SEARCH=v1', async () => {
+  it('returns CoreSearchProvider when WIGOLO_SEARCH=hybrid and warns about Phase 1 stub', async () => {
+    process.env.WIGOLO_SEARCH = 'hybrid';
+    const provider = await getSearchProvider();
+    expect(provider).toBeInstanceOf(CoreSearchProvider);
+    expect(provider.name).toBe('core');
+    expect(stderrOutput).toMatch(/Phase 1/);
+    expect(stderrOutput).toMatch(/not yet implemented/);
+  });
+
+  it('accepts deprecated WIGOLO_SEARCH=v1 as alias for core and warns', async () => {
     process.env.WIGOLO_SEARCH = 'v1';
     const provider = await getSearchProvider();
-    expect(provider).toBeInstanceOf(V1SearchProvider);
-    expect(provider.name).toBe('v1');
+    expect(provider).toBeInstanceOf(CoreSearchProvider);
+    expect(provider.name).toBe('core');
+    expect(stderrOutput).toMatch(/deprecated/);
   });
 
-  it('rejects on unknown value', async () => {
-    process.env.WIGOLO_SEARCH = 'tavily';
-    await expect(getSearchProvider()).rejects.toThrow(/WIGOLO_SEARCH/);
+  it('rejects on unknown value with vocabulary error', async () => {
+    process.env.WIGOLO_SEARCH = 'garbage';
+    await expect(getSearchProvider()).rejects.toThrow(/Unknown WIGOLO_SEARCH/);
   });
 
   it('recovers from prior rejection on next call', async () => {
-    process.env.WIGOLO_SEARCH = 'tavily';
-    await expect(getSearchProvider()).rejects.toThrow(/WIGOLO_SEARCH/);
-    // The unknown-value path never sets `cached`, so the next call with a
-    // valid value must succeed without needing _resetSearchProviderForTest.
+    process.env.WIGOLO_SEARCH = 'garbage';
+    await expect(getSearchProvider()).rejects.toThrow(/Unknown WIGOLO_SEARCH/);
     process.env.WIGOLO_SEARCH = 'searxng';
     expect(await getSearchProvider()).toBeInstanceOf(LegacySearxngProvider);
   });

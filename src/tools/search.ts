@@ -12,9 +12,11 @@ import { getSearchProvider } from '../providers/search-provider.js';
 
 /**
  * Thin handler — validates wiring args and delegates to the selected search
- * provider (legacy SearXNG by default, V1 stub when `WIGOLO_SEARCH=v1`).
+ * provider (core by default, searxng opt-in via WIGOLO_SEARCH=searxng, hybrid
+ * via WIGOLO_SEARCH=hybrid).
  *
- * All orchestration logic lives in `src/search/legacy/searxng-orchestrator.ts`.
+ * Core orchestration lives in `src/search/core/`; the legacy SearXNG
+ * orchestrator lives in `src/search/legacy/`.
  */
 export async function handleSearch(
   input: SearchInput,
