@@ -94,6 +94,7 @@ export interface RawFetchResult {
   actionResults?: ActionResult[];
   jsRequired?: boolean;
   escalated?: boolean;
+  warning?: string;
 }
 
 export interface ExtractionResult {

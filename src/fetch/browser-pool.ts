@@ -284,19 +284,33 @@ export class MultiBrowserPool {
     let contentType = '';
     let responseHeaders: Record<string, string> = {};
     let finalUrl = url;
+    let gotoTimedOut = false;
 
     try {
-      const response = await page.goto(url, {
-        timeout: navTimeoutMs,
-        waitUntil: 'domcontentloaded',
-      });
+      try {
+        const response = await page.goto(url, {
+          timeout: navTimeoutMs,
+          waitUntil: 'domcontentloaded',
+        });
 
-      if (response) {
-        statusCode = response.status();
-        finalUrl = response.url();
-        const rawHeaders = response.headers();
-        responseHeaders = rawHeaders;
-        contentType = rawHeaders['content-type'] ?? '';
+        if (response) {
+          statusCode = response.status();
+          finalUrl = response.url();
+          const rawHeaders = response.headers();
+          responseHeaders = rawHeaders;
+          contentType = rawHeaders['content-type'] ?? '';
+        }
+      } catch (err) {
+        // SPAs may hydrate past the nav timeout. Rather than failing the whole
+        // fetch, capture whatever HTML the page already rendered and tag a
+        // warning so callers (and host LLMs) know the content is partial.
+        const msg = err instanceof Error ? err.message : String(err);
+        const isTimeout =
+          (err instanceof Error && err.name === 'TimeoutError') ||
+          /Timeout\s+\d+ms\s+exceeded/i.test(msg);
+        if (!isTimeout) throw err;
+        gotoTimedOut = true;
+        log.warn('page.goto timed out, returning partial content', { url, navTimeoutMs });
       }
 
       try {
@@ -328,6 +342,7 @@ export class MultiBrowserPool {
         headers: responseHeaders,
         screenshot: screenshotBase64,
         actionResults,
+        ...(gotoTimedOut ? { warning: 'goto_timeout_partial_content' } : {}),
       };
     } finally {
       await page.close();

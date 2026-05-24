@@ -105,7 +105,7 @@ export function getConfig(): Config {
     fetchMaxRetries: envInt('FETCH_MAX_RETRIES', 2),
     maxRedirects: envInt('MAX_REDIRECTS', 5),
     playwrightLoadTimeoutMs: envInt('PLAYWRIGHT_LOAD_TIMEOUT_MS', 15000),
-    playwrightNavTimeoutMs: envInt('PLAYWRIGHT_NAV_TIMEOUT_MS', 10000),
+    playwrightNavTimeoutMs: envInt('PLAYWRIGHT_NAV_TIMEOUT_MS', 30000),
     searxngQueryTimeoutMs: envInt('SEARXNG_QUERY_TIMEOUT_MS', 8000),
     searchFetchTimeoutMs: envInt('SEARCH_FETCH_TIMEOUT_MS', 15000),
     searchTotalTimeoutMs: envInt('SEARCH_TOTAL_TIMEOUT_MS', 30000),
