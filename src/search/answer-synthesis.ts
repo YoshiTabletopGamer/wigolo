@@ -5,6 +5,7 @@ import {
   requestSampling,
   extractTextFromSamplingResponse,
 } from './sampling.js';
+import { isLlmConfigured, runLlmText } from '../integrations/cloud/llm/run.js';
 import { createLogger } from '../logger.js';
 
 const log = createLogger('search');
@@ -237,6 +238,34 @@ export async function runSynthesis(
       }
     } catch (err) {
       log.warn('synthesis level-1 sampling failed, falling through to heuristic', { error: String(err) });
+    }
+  }
+
+  // Level 1b: configured WIGOLO_LLM_PROVIDER (Gemini/OpenAI/Anthropic/...).
+  // Same prompt as MCP sampling — research and agent already use this path,
+  // and routing search format=answer through the same backend keeps synthesis
+  // consistent across tools when the host client doesn't expose sampling.
+  if (isLlmConfigured()) {
+    try {
+      const sourcesText = buildSourcesText(results);
+      if (sourcesText) {
+        const prompt = buildSynthesisPrompt(query, sourcesText);
+        const r = await runLlmText({ prompt, maxTokens: MAX_RESPONSE_TOKENS });
+        const text = (r.text ?? '').trim();
+        if (text) {
+          const citations = extractCitations(text, results);
+          return {
+            ok: true,
+            data: {
+              answer: text,
+              citations,
+              fallback_level: 1,
+            },
+          };
+        }
+      }
+    } catch (err) {
+      log.warn('synthesis level-1 LLM provider failed, falling through to heuristic', { error: String(err) });
     }
   }
 

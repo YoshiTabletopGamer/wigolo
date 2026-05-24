@@ -469,6 +469,73 @@ describe('runSynthesis', () => {
   });
 });
 
+describe('runSynthesis level 1 (WIGOLO_LLM_PROVIDER path)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it('uses runLlmText when sampling server absent but provider configured', async () => {
+    vi.doMock('../../../src/integrations/cloud/llm/run.js', () => ({
+      isLlmConfigured: vi.fn().mockReturnValue(true),
+      runLlmText: vi.fn().mockResolvedValue({
+        text: 'Synthesized via provider [1].',
+        provider: 'gemini',
+        model: 'gemini-1.5-flash',
+        latencyMs: 120,
+      }),
+    }));
+    const mod = await import('../../../src/search/answer-synthesis.js');
+
+    const results: SearchResultItem[] = [
+      makeResult({
+        title: 'Source One',
+        url: 'https://a.example/one',
+        snippet: 'first source',
+        markdown_content: 'First source body content.',
+      }),
+    ];
+
+    const out = await mod.runSynthesis({
+      query: 'q',
+      results,
+      samplingServer: undefined,
+      maxTotalChars: 8000,
+    });
+
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.data.fallback_level).toBe(1);
+      expect(out.data.answer).toBe('Synthesized via provider [1].');
+      expect(out.data.citations).toHaveLength(1);
+    }
+  });
+
+  it('falls through to heuristic bullets when provider call throws', async () => {
+    vi.doMock('../../../src/integrations/cloud/llm/run.js', () => ({
+      isLlmConfigured: vi.fn().mockReturnValue(true),
+      runLlmText: vi.fn().mockRejectedValue(new Error('timeout')),
+    }));
+    const mod = await import('../../../src/search/answer-synthesis.js');
+
+    const results: SearchResultItem[] = [
+      makeResult({
+        title: 'Source One',
+        url: 'https://a.example/one',
+        snippet: 'first',
+        markdown_content: 'long enough body content to bullet from.',
+      }),
+    ];
+
+    const out = await mod.runSynthesis({
+      query: 'q', results, samplingServer: undefined, maxTotalChars: 8000,
+    });
+
+    expect(out.ok).toBe(true);
+    if (out.ok) expect(out.data.fallback_level).toBe(2);
+  });
+});
+
 describe('runSynthesis level 1 (sampling success)', () => {
   beforeEach(() => {
     vi.resetModules();
