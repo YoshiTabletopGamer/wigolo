@@ -67,7 +67,19 @@ export async function runResearchPipeline(
       depth as 'quick' | 'standard' | 'comprehensive',
       server,
     );
-    const subQueries = decomposeResult.subQueries;
+    // The decomposer rewrites the question into a synthetic sub-query set —
+    // useful for breadth but it loses specific tokens from the original
+    // phrasing (the bench called this the "A2A clause drop": "Anthropic A2A
+    // vs Swarm" had "A2A" stripped during noun-phrase extraction). Prepend
+    // the original verbatim so the seed phrasing always feeds the search
+    // fan-out, dedup'd case-insensitively against the synthetic set.
+    const subQueries = (() => {
+      const original = input.question.trim();
+      if (!original) return decomposeResult.subQueries;
+      const seen = new Set(decomposeResult.subQueries.map((q) => q.toLowerCase()));
+      if (seen.has(original.toLowerCase())) return decomposeResult.subQueries;
+      return [original, ...decomposeResult.subQueries];
+    })();
     const queryType = decomposeResult.queryType;
     log.info('decomposition complete', { subQueryCount: subQueries.length, samplingUsed: decomposeResult.samplingUsed, queryType });
 

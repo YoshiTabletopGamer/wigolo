@@ -78,6 +78,44 @@ describe('runResearchPipeline', () => {
     expect(typeof result.sampling_supported).toBe('boolean');
   });
 
+  it('preserves original question phrasing as the first sub-query', async () => {
+    // Closes the "A2A clause drop" bench complaint — the decomposer used to
+    // rewrite the question into synthetic phrasings and lose specific tokens
+    // from the original (e.g. "A2A" stripped during noun-phrase extraction).
+    // Pipeline now prepends the verbatim question so the seed phrasing
+    // always feeds the search fan-out.
+    const engine = createStubEngine(defaultResults);
+    const router = createStubRouter();
+    const input: ResearchInput = {
+      question: 'Anthropic A2A SDK vs OpenAI Swarm for agent orchestration',
+      depth: 'standard',
+    };
+
+    const result = await runResearchPipeline(input, [engine], router);
+
+    expect(result.sub_queries[0]).toBe(
+      'Anthropic A2A SDK vs OpenAI Swarm for agent orchestration',
+    );
+    // The verbatim string survives — proves the token wasn't dropped.
+    expect(result.sub_queries[0]).toContain('A2A');
+  });
+
+  it('does not double-include the original question when the decomposer already produced it', async () => {
+    // If the synthetic set happens to include the verbatim question (case-
+    // insensitive), the prepend is a no-op so we don't waste a search slot.
+    const engine = createStubEngine(defaultResults);
+    const router = createStubRouter();
+    // 'react hooks' is short enough that decompose-fallback may emit it
+    // verbatim as one of the noun-phrase variants.
+    const input: ResearchInput = { question: 'React hooks', depth: 'quick' };
+
+    const result = await runResearchPipeline(input, [engine], router);
+
+    const lowered = result.sub_queries.map((q) => q.toLowerCase());
+    const occurrences = lowered.filter((q) => q === 'react hooks').length;
+    expect(occurrences).toBeLessThanOrEqual(1);
+  });
+
   it('defaults depth to standard when not provided', async () => {
     const engine = createStubEngine(defaultResults);
     const router = createStubRouter();
@@ -86,10 +124,12 @@ describe('runResearchPipeline', () => {
     const result = await runResearchPipeline(input, [engine], router);
 
     expect(result.depth).toBe('standard');
-    expect(result.sub_queries).toHaveLength(4);
+    // Original question prepended to the 4 synthetic sub-queries.
+    expect(result.sub_queries).toHaveLength(5);
+    expect(result.sub_queries[0]).toBe('What is TypeScript?');
   });
 
-  it('respects quick depth (2 sub-queries, fewer sources)', async () => {
+  it('respects quick depth (2 synthetic sub-queries + original, fewer sources)', async () => {
     const engine = createStubEngine(defaultResults);
     const router = createStubRouter();
     const input: ResearchInput = { question: 'What is Deno?', depth: 'quick' };
@@ -97,11 +137,12 @@ describe('runResearchPipeline', () => {
     const result = await runResearchPipeline(input, [engine], router);
 
     expect(result.depth).toBe('quick');
-    expect(result.sub_queries).toHaveLength(2);
+    expect(result.sub_queries).toHaveLength(3);
+    expect(result.sub_queries[0]).toBe('What is Deno?');
     expect(result.sources.length).toBeLessThanOrEqual(8);
   });
 
-  it('respects comprehensive depth (7 sub-queries, more sources)', async () => {
+  it('respects comprehensive depth (7 synthetic sub-queries + original)', async () => {
     const engine = createStubEngine(defaultResults);
     const router = createStubRouter();
     const input: ResearchInput = {
@@ -112,7 +153,11 @@ describe('runResearchPipeline', () => {
     const result = await runResearchPipeline(input, [engine], router);
 
     expect(result.depth).toBe('comprehensive');
-    expect(result.sub_queries).toHaveLength(7);
+    // 7 synthetic + original (deduped if the synthetic set already contains it
+    // case-insensitively, so length is 7 or 8).
+    expect(result.sub_queries.length).toBeGreaterThanOrEqual(7);
+    expect(result.sub_queries.length).toBeLessThanOrEqual(8);
+    expect(result.sub_queries[0]).toBe('Comprehensive analysis of modern JavaScript build tools');
   });
 
   it('respects max_sources override', async () => {

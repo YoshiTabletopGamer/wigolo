@@ -136,8 +136,15 @@ export class Crawler {
       if (depth < maxDepth) {
         const newLinks = this.filterLinks(fetchResult.links, seedOrigin, visited, input.include_patterns, input.exclude_patterns, robotsParser);
 
+        // filterLinks() runs against the visited snapshot before this loop,
+        // so two outbound links with the same canonical (e.g. /page#a and
+        // /page#b — different anchors, same target) both pass. Re-check
+        // here so we don't queue the same canonical twice and fetch the
+        // same page repeatedly under different fragments.
         for (const link of newLinks) {
-          visited.add(canonicalForCrawl(link));
+          const canonical = canonicalForCrawl(link);
+          if (visited.has(canonical)) continue;
+          visited.add(canonical);
           queue.push([link, depth + 1]);
         }
 

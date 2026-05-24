@@ -440,6 +440,41 @@ describe('Crawler — canonical output URLs', () => {
     expect(urls.some((u) => u.endsWith('/intro/'))).toBe(false);
   });
 
+  it('does not fetch the same page repeatedly when outbound links share canonical URL with different anchor fragments', async () => {
+    // Bench: BFS returned the same page 5x because /page#a, /page#b, /page#c
+    // all canonicalize to /page but the visited check fired against the
+    // pre-loop snapshot, letting duplicates queue up.
+    const fetchSpy: FetchFn = vi.fn(async (url: string) => {
+      if (url === 'https://docs.example.com') {
+        return makeFetchOutput(url, 'Home', '# Home', [
+          'https://docs.example.com/page#section-1',
+          'https://docs.example.com/page#section-2',
+          'https://docs.example.com/page#section-3',
+          'https://docs.example.com/page',
+          'https://docs.example.com/page#section-4',
+        ]);
+      }
+      // Same target URL no matter which fragment we arrived with.
+      return makeFetchOutput('https://docs.example.com/page', 'Page', '# Page', []);
+    });
+    const rawFetch: RawFetchFn = vi.fn(async () => ({
+      url: '', finalUrl: '', html: '', contentType: 'text/plain', statusCode: 200, method: 'http' as const, headers: {},
+    }));
+
+    const crawler = new Crawler(fetchSpy, rawFetch);
+    const result = await crawler.crawl({
+      url: 'https://docs.example.com',
+      strategy: 'bfs',
+      max_depth: 1,
+      max_pages: 10,
+    });
+
+    const pageHits = result.pages.filter((p) => p.url === 'https://docs.example.com/page').length;
+    expect(pageHits).toBe(1);
+    // fetchFn called once for seed + once for the canonical target.
+    expect((fetchSpy as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2);
+  });
+
   it('strips trailing slash on emitted non-root paths', async () => {
     const fetch: FetchFn = vi.fn(async (url) => {
       if (url === 'https://docs.example.com/intro') {
