@@ -184,6 +184,10 @@ export const SEARCH_TOOL_SCHEMA = {
       type: 'boolean',
       description: 'Bypass all caches (search results and page content). Use when you need the most current information.',
     },
+    include_favicon: {
+      type: 'boolean',
+      description: 'Attach a per-result `favicon` URL derived from the result host. Cached per-domain across the call.',
+    },
     include_images: {
       type: 'boolean',
       description: 'Aggregate engine-provided thumbnail/image hints into a top-level `images` array of `{url, alt?, source_url}`. Empty array if no engine surfaced one.',

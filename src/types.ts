@@ -221,6 +221,8 @@ export interface SearchInput {
   /** When true, the response carries a top-level `images` array aggregated
    * from per-result image hints emitted by engines that expose them. */
   include_images?: boolean;
+  /** When true, each result carries a `favicon` URL derived from its host. */
+  include_favicon?: boolean;
 }
 
 export interface ImageItem {
@@ -251,6 +253,8 @@ export interface SearchResultItem {
   cached?: boolean;
   cached_at?: string;
   stale?: boolean;
+  /** Per-host favicon URL, emitted when input.include_favicon is true. */
+  favicon?: string;
   /** Carried through from RawSearchResult.image_url so the orchestrator
    * can aggregate top-level images when input.include_images is true. */
   image_url?: string;
