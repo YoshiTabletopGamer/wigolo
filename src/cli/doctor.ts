@@ -8,6 +8,8 @@ import { getConfig } from '../config.js';
 import { getRerankProvider } from '../providers/rerank-provider.js';
 import { getEmbedProvider } from '../providers/embed-provider.js';
 import { initDatabase, closeDatabase } from '../cache/db.js';
+import { getCacheStats } from '../cache/store.js';
+import { getBackgroundIndexQueue } from '../embedding/background-queue.js';
 import { loadFeedConfig } from '../search/core/rss/feed-config.js';
 import { isTelemetryEnabled } from './telemetry.js';
 import { allProviders, providerEnvVar, selectProvider } from '../integrations/cloud/llm/select.js';
@@ -222,7 +224,11 @@ async function runDoctorInner(dataDir: string): Promise<number> {
   const normalized = rawBackend === undefined || rawBackend === '' || rawBackend === 'v1'
     ? 'core'
     : rawBackend;
-  out(`  Backend:       ${aliased ?? normalized} (default: core)`);
+  const valid = ['core', 'searxng', 'hybrid'].includes(normalized);
+  const renderBackend = (name: string): string =>
+    name === normalized ? `* ${name}` : `  ${name}`;
+  out(`  Backend:       ${aliased ?? normalized}${valid ? '' : ' (unknown — falling back to core)'} (default: core)`);
+  out(`  Modes:         ${renderBackend('core')}   ${renderBackend('searxng')}   ${renderBackend('hybrid')}`);
   if (normalized === 'hybrid') {
     const { SIGNAL_NAMES } = await import('../search/hybrid/signals.js');
     out(`  hybrid mode:   core runs first; falls back to searxng + RRF merge when any signal fires`);
@@ -279,8 +285,20 @@ async function runDoctorInner(dataDir: string): Promise<number> {
 
   await checkCoreEmbeddings();
   await checkSqliteVec(dataDir);
+  checkCacheStats(dataDir);
+  checkBackgroundQueue(dataDir);
   checkRssFeeds(dataDir);
   checkTelemetryStatus();
+
+  if (normalized === 'searxng' || normalized === 'hybrid') {
+    out('');
+    out(`[wigolo doctor] Mode '${normalized}' note:`);
+    if (state?.status === 'ready') {
+      out('  search engine: ready (will be used for this backend)');
+    } else {
+      out(`  search engine: not ready — ${normalized === 'hybrid' ? 'hybrid will degrade to core-only' : 'searxng calls will fail'}`);
+    }
+  }
 
   out('');
   out(`[wigolo doctor] Overall: ${degraded ? 'DEGRADED' : 'OK'}`);
@@ -316,6 +334,56 @@ async function checkSqliteVec(dataDir: string): Promise<void> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     out(`  extension:     (check failed: ${msg.slice(0, 80)})`);
+  } finally {
+    if (opened) {
+      try { closeDatabase(); } catch { /* ignore */ }
+    }
+  }
+}
+
+function checkCacheStats(dataDir: string): void {
+  out('');
+  out('[wigolo doctor] Local cache:');
+  let opened = false;
+  try {
+    initDatabase(join(dataDir, 'wigolo.db'));
+    opened = true;
+    const stats = getCacheStats();
+    if (stats.total_urls === 0) {
+      out('  urls:          0 (cache empty — populate via fetch/crawl)');
+    } else {
+      out(`  urls:          ${stats.total_urls}`);
+      out(`  size:          ${stats.total_size_mb.toFixed(2)} MB`);
+      if (stats.oldest) out(`  oldest:        ${stats.oldest}`);
+      if (stats.newest) out(`  newest:        ${stats.newest}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    out(`  (check failed: ${msg.slice(0, 80)})`);
+  } finally {
+    if (opened) {
+      try { closeDatabase(); } catch { /* ignore */ }
+    }
+  }
+}
+
+function checkBackgroundQueue(dataDir: string): void {
+  out('');
+  out('[wigolo doctor] Background embedding queue:');
+  let opened = false;
+  try {
+    initDatabase(join(dataDir, 'wigolo.db'));
+    opened = true;
+    const queue = getBackgroundIndexQueue();
+    const pending = queue.pendingSize();
+    if (pending === 0) {
+      out('  pending:       0 (idle)');
+    } else {
+      out(`  pending:       ${pending} job(s) — draining on next worker tick`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    out(`  (check failed: ${msg.slice(0, 80)})`);
   } finally {
     if (opened) {
       try { closeDatabase(); } catch { /* ignore */ }
