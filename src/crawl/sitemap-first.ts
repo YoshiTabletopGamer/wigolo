@@ -1,4 +1,9 @@
-import { parseSitemap, parseSitemapIndex, extractSitemapUrlFromRobots } from './sitemap.js';
+import {
+  parseSitemapEntries,
+  parseSitemapIndex,
+  sortSitemapEntries,
+  extractSitemapUrlFromRobots,
+} from './sitemap.js';
 import type { RawFetchResult } from '../types.js';
 
 const PROBE_PATHS = ['/sitemap.xml', '/sitemap_index.xml', '/sitemap.xml.gz'];
@@ -53,8 +58,9 @@ async function fetchAndParseSitemap(url: string, rawFetch: RawFetchFn): Promise<
       return all.length > 0 ? all : null;
     }
 
-    const urls = parseSitemap(result.html);
-    return urls.length > 0 ? urls : null;
+    const entries = parseSitemapEntries(result.html);
+    if (entries.length === 0) return null;
+    return sortSitemapEntries(entries).map(e => e.url);
   } catch {
     return null;
   }

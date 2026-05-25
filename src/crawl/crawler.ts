@@ -2,7 +2,14 @@ import type { FetchOutput, CrawlInput, CrawlOutput, CrawlResultItem, LinkEdge, R
 import { matchesPatterns, canonicalForCrawl, canonicalForOutput } from './url-utils.js';
 import { RateLimiter } from './rate-limiter.js';
 import { RobotsParser } from './robots.js';
-import { parseSitemap, parseSitemapIndex, extractSitemapUrlFromRobots } from './sitemap.js';
+import {
+  parseSitemap,
+  parseSitemapIndex,
+  parseSitemapEntries,
+  sortSitemapEntries,
+  extractSitemapUrlFromRobots,
+  type SitemapEntry,
+} from './sitemap.js';
 import { probeSitemap } from './sitemap-first.js';
 import { isIndexingEnabled, enqueueIndexCrawl } from './index-to-vec.js';
 import { getConfig } from '../config.js';
@@ -294,7 +301,7 @@ export class Crawler {
       sitemapLocations.push(`${origin}/sitemap.xml`);
     }
 
-    const allUrls: string[] = [];
+    const allEntries: SitemapEntry[] = [];
 
     for (const sitemapUrl of sitemapLocations) {
       try {
@@ -309,21 +316,24 @@ export class Crawler {
             try {
               const subResult = await this.rawFetchFn(subUrl);
               if (subResult.statusCode === 200) {
-                allUrls.push(...parseSitemap(subResult.html));
+                allEntries.push(...parseSitemapEntries(subResult.html));
               }
             } catch {
               // skip failed sub-sitemaps
             }
           }
         } else {
-          allUrls.push(...parseSitemap(result.html));
+          allEntries.push(...parseSitemapEntries(result.html));
         }
       } catch {
         // skip failed sitemap fetches
       }
     }
 
-    return allUrls;
+    // Sort so the most recently modified pages survive the max_pages cap.
+    // Document order is usually alphabetical, which buried fresh content
+    // under stale glossary pages (bench C1).
+    return sortSitemapEntries(allEntries).map(e => e.url);
   }
 }
 

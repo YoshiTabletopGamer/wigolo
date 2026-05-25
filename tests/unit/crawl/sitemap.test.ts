@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { parseSitemap, parseSitemapIndex, extractSitemapUrlFromRobots } from '../../../src/crawl/sitemap.js';
+import {
+  parseSitemap,
+  parseSitemapIndex,
+  extractSitemapUrlFromRobots,
+  parseSitemapEntries,
+  sortSitemapEntries,
+} from '../../../src/crawl/sitemap.js';
 
 describe('parseSitemap', () => {
   it('extracts URLs from a standard sitemap.xml', () => {
@@ -57,6 +63,102 @@ describe('parseSitemapIndex', () => {
       <url><loc>https://example.com/</loc></url>
     </urlset>`;
     expect(parseSitemapIndex(xml)).toEqual([]);
+  });
+});
+
+describe('parseSitemapEntries', () => {
+  it('returns url with optional lastmod and priority per entry', () => {
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://example.com/a</loc>
+    <lastmod>2026-01-15</lastmod>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://example.com/b</loc>
+    <lastmod>2026-05-20</lastmod>
+  </url>
+  <url>
+    <loc>https://example.com/c</loc>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://example.com/d</loc>
+  </url>
+</urlset>`;
+
+    expect(parseSitemapEntries(xml)).toEqual([
+      { url: 'https://example.com/a', lastmod: '2026-01-15', priority: 0.8 },
+      { url: 'https://example.com/b', lastmod: '2026-05-20' },
+      { url: 'https://example.com/c', priority: 0.5 },
+      { url: 'https://example.com/d' },
+    ]);
+  });
+});
+
+describe('sortSitemapEntries', () => {
+  it('orders by lastmod descending so most recently modified pages come first', () => {
+    // Bench C1 (verdict §5 #9): sitemap crawl with budget cap returned the
+    // first four alphabetical pages (clients/antitrust/charter/communication)
+    // and dropped four "over budget". The most-recent pages were buried
+    // alphabetically. After sorting, the recent ones survive the cap.
+    const entries = [
+      { url: 'https://example.com/antitrust', lastmod: '2024-01-10' },
+      { url: 'https://example.com/charter', lastmod: '2024-02-15' },
+      { url: 'https://example.com/clients', lastmod: '2024-03-01' },
+      { url: 'https://example.com/news-2026-q2', lastmod: '2026-05-20' },
+      { url: 'https://example.com/news-2026-q1', lastmod: '2026-03-15' },
+    ];
+
+    const sorted = sortSitemapEntries(entries);
+    expect(sorted.map(e => e.url)).toEqual([
+      'https://example.com/news-2026-q2',
+      'https://example.com/news-2026-q1',
+      'https://example.com/clients',
+      'https://example.com/charter',
+      'https://example.com/antitrust',
+    ]);
+  });
+
+  it('falls back to priority descending when lastmod missing', () => {
+    const entries = [
+      { url: 'https://example.com/low', priority: 0.2 },
+      { url: 'https://example.com/high', priority: 0.9 },
+      { url: 'https://example.com/mid', priority: 0.5 },
+    ];
+
+    const sorted = sortSitemapEntries(entries);
+    expect(sorted.map(e => e.url)).toEqual([
+      'https://example.com/high',
+      'https://example.com/mid',
+      'https://example.com/low',
+    ]);
+  });
+
+  it('puts entries with lastmod ahead of entries without lastmod', () => {
+    const entries = [
+      { url: 'https://example.com/old-doc-no-meta' },
+      { url: 'https://example.com/recent', lastmod: '2026-05-20' },
+      { url: 'https://example.com/another-bare' },
+    ];
+
+    const sorted = sortSitemapEntries(entries);
+    expect(sorted[0].url).toBe('https://example.com/recent');
+  });
+
+  it('preserves input order for entries with no lastmod or priority (stable sort)', () => {
+    const entries = [
+      { url: 'https://example.com/a' },
+      { url: 'https://example.com/b' },
+      { url: 'https://example.com/c' },
+    ];
+
+    expect(sortSitemapEntries(entries).map(e => e.url)).toEqual([
+      'https://example.com/a',
+      'https://example.com/b',
+      'https://example.com/c',
+    ]);
   });
 });
 
