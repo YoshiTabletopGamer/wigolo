@@ -135,6 +135,10 @@ export const SEARCH_TOOL_SCHEMA = {
     time_range: { type: 'string', enum: ['day', 'week', 'month', 'year'], description: 'Time range filter' },
     search_engines: { type: 'array', items: { type: 'string' }, description: 'Override engine selection' },
     language: { type: 'string', description: 'Language preference' },
+    country: {
+      type: 'string',
+      description: 'ISO 3166-1 alpha-2 country code (e.g. "us", "gb", "de"). Hint passed to engines that support a geographic boost (Bing cc=, DDG kl=, Brave country=); advisory, not a strict filter.',
+    },
     include_domains: {
       type: 'array',
       items: { type: 'string' },
