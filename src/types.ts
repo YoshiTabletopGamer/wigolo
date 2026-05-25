@@ -213,6 +213,11 @@ export interface SearchInput {
   /** ISO 3166-1 alpha-2 country code (e.g. "us", "gb", "de"). Hint passed to
    * engines that support a geographic boost; not a strict filter. */
   country?: string;
+  /** When true, the query is treated as a quoted phrase. Engines that
+   * honour `"..."` filter to results containing the exact phrase, and
+   * the orchestrator post-filters out any result whose title+snippet
+   * does not contain the phrase as a case-insensitive substring. */
+  exact_match?: boolean;
 }
 
 export interface EngineOutcomeSummary {
