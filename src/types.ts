@@ -263,6 +263,11 @@ export interface SearchOutput {
   synthesis_provider?: string;
   synthesis_model?: string;
   synthesis_advice?: string;
+  /** Only set by the hybrid provider. `null` means hybrid evaluated all
+   * fallback signals and none fired (the result is pure core). A string is
+   * the `+`-joined names of every signal that fired (e.g.
+   * `"include_domains_over_filter+top1_high_score_low_overlap"`); the
+   * result merges core + searxng via RRF. Absent on `core`/`searxng` paths. */
   fallback_signal?: string | null;
 }
 
