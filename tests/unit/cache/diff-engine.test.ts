@@ -5,6 +5,7 @@ import {
   computeHunks,
   DIFF_LINE_CAP,
 } from '../../../src/cache/diff-engine.js';
+import { MAX_DIFF_LINES } from '../../../src/cache/diff-summary.js';
 
 describe('computeUnifiedDiff', () => {
   // Why: a unified diff that doesn't match git semantics breaks downstream
@@ -290,6 +291,14 @@ describe('computeDiffEnvelope', () => {
     const elapsed = Date.now() - start;
     expect(out.changed).toBe(true);
     expect(elapsed).toBeLessThan(200);
+  });
+
+  // Why: keeps the two LCS implementations in sync; a future tune of one
+  // constant must update both. `diff-engine.ts` and `diff-summary.ts` share
+  // the same `lcs.ts` table but each owns its own size cap — drift between
+  // the caps would silently degrade one shape while the other still ran.
+  it('keeps DIFF_LINE_CAP and MAX_DIFF_LINES in sync', () => {
+    expect(DIFF_LINE_CAP).toBe(MAX_DIFF_LINES);
   });
 
   it('counts total_changed_chars across all add+remove lines', () => {

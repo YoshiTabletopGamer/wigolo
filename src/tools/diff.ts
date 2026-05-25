@@ -35,6 +35,17 @@ function resolveSide(
     return { ok: true, markdown: side.markdown };
   }
   if (typeof side.url === 'string') {
+    // Pre-validate so `normalizeUrl` (called by `getCachedContent`) doesn't
+    // throw `TypeError: Invalid URL` on garbage input. Returning a structured
+    // envelope here keeps the surface consistent with the other input-shape
+    // errors above.
+    if (!URL.canParse(side.url)) {
+      return {
+        ok: false,
+        error: 'invalid_input',
+        error_reason: `${label}.url is not a valid absolute URL: ${JSON.stringify(side.url)}`,
+      };
+    }
     const cached = getCachedContent(side.url);
     if (!cached || isExpired(cached)) {
       return {

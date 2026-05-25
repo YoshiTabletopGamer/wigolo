@@ -222,6 +222,41 @@ describe('handleDiff', () => {
       }
     });
 
+    // Why: `normalizeUrl` -> `new URL(url)` throws on malformed input. Without
+    // pre-validation that throw bubbles past the side-resolver and reaches the
+    // top-level handler as an opaque crash instead of a structured envelope.
+    // Callers must always see `{ ok: false, error: 'invalid_input', ... }` for
+    // bad input rather than an unhandled exception.
+    it('returns invalid_input envelope when old.url is malformed', async () => {
+      const r = await handleDiff({
+        old: { url: 'not-a-valid-url' },
+        new: { markdown: 'whatever\n' },
+        output: 'unified',
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error).toBe('invalid_input');
+        expect(r.error_reason).toMatch(/old\.url/i);
+        expect(r.error_reason).toContain('not-a-valid-url');
+      }
+      // `getCachedContent` must NOT be invoked when the URL is malformed —
+      // the pre-validation gate has to stop it before normalizeUrl can throw.
+      expect(getCachedContent).not.toHaveBeenCalled();
+    });
+
+    it('returns invalid_input envelope when new.url is malformed', async () => {
+      const r = await handleDiff({
+        old: { markdown: 'a\n' },
+        new: { url: 'http://' },
+        output: 'unified',
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.error).toBe('invalid_input');
+        expect(r.error_reason).toMatch(/new\.url/i);
+      }
+    });
+
     it('treats expired cache entries as a miss', async () => {
       vi.mocked(getCachedContent).mockReturnValue({
         id: 1,

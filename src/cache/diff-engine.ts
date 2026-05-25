@@ -1,17 +1,14 @@
 import { createLogger } from '../logger.js';
 import type { DiffHunk, DiffSummary, DiffOutput, DiffOutputShape, DiffGranularity } from '../types.js';
+import { computeLcsTable } from './lcs.js';
 
 const log = createLogger('cache');
 
 /**
  * Line cap above which LCS is skipped and the envelope falls back to a
- * summary-only shape with `truncated: true`. Mirrors the cap in
- * `diff-summary.ts` so the two modules degrade in lock-step.
- *
- * NOTE: `diff-summary.ts` is marked read-only by the slice spec. The LCS
- * algorithm and size cap are reimplemented here rather than exported from
- * that file. Both implementations must stay aligned; if you tune one, tune
- * the other.
+ * summary-only shape with `truncated: true`. Mirrors `MAX_DIFF_LINES` in
+ * `diff-summary.ts` so the two modules degrade in lock-step. A unit test
+ * pins them equal — if you tune one, tune the other.
  */
 export const DIFF_LINE_CAP = 5000;
 
@@ -31,26 +28,6 @@ function splitLines(text: string): string[] {
   return lines;
 }
 
-/**
- * Classic LCS DP table. Identical algorithm to `diff-summary.ts:computeLCS`.
- * Kept private here so callers route through the higher-level engine helpers.
- */
-function computeLcsTable(oldLines: string[], newLines: string[]): number[][] {
-  const m = oldLines.length;
-  const n = newLines.length;
-  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (oldLines[i - 1] === newLines[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
-      } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-      }
-    }
-  }
-  return dp;
-}
-
 type EditOp =
   | { type: 'equal'; oldLine: string; newLine: string }
   | { type: 'delete'; oldLine: string }
@@ -58,16 +35,19 @@ type EditOp =
 
 /** Walk the LCS DP table backwards to produce an ordered edit script. */
 function buildEditScript(oldLines: string[], newLines: string[]): EditOp[] {
+  const m = oldLines.length;
+  const n = newLines.length;
+  const stride = n + 1;
   const dp = computeLcsTable(oldLines, newLines);
   const ops: EditOp[] = [];
-  let i = oldLines.length;
-  let j = newLines.length;
+  let i = m;
+  let j = n;
   while (i > 0 && j > 0) {
     if (oldLines[i - 1] === newLines[j - 1]) {
       ops.push({ type: 'equal', oldLine: oldLines[i - 1], newLine: newLines[j - 1] });
       i--;
       j--;
-    } else if (dp[i - 1][j] >= dp[i][j - 1]) {
+    } else if (dp[(i - 1) * stride + j] >= dp[i * stride + (j - 1)]) {
       ops.push({ type: 'delete', oldLine: oldLines[i - 1] });
       i--;
     } else {
@@ -184,8 +164,43 @@ export function computeUnifiedDiff(oldText: string, newText: string): UnifiedDif
     return { diff: '', truncated: false, summary };
   }
 
-  const diff = renderUnifiedDiff(ops);
+  // Normalize once and pass to the renderer pre-sorted. Avoids a second
+  // O(n) pass inside `renderUnifiedDiff`.
+  const normalized = normalizeEditOrder(ops);
+  const diff = renderUnifiedDiff(normalized);
   return { diff, truncated: false, summary };
+}
+
+/**
+ * Cheaper alternative to `computeUnifiedDiff` for callers (the section walker)
+ * that only need the summary counts. Runs LCS once via `buildEditScript`
+ * and computes counts + char totals without rendering the unified patch
+ * or normalizing edit order.
+ */
+export function computeDiffSummaryOnly(oldText: string, newText: string): UnifiedDiffResult {
+  const oldLines = splitLines(oldText);
+  const newLines = splitLines(newText);
+
+  if (oldLines.length > DIFF_LINE_CAP || newLines.length > DIFF_LINE_CAP) {
+    return {
+      diff: '',
+      truncated: true,
+      summary: approximateSummaryForTruncated(oldLines, newLines),
+    };
+  }
+
+  const ops = buildEditScript(oldLines, newLines);
+  const counts = countsFromOps(ops);
+  return {
+    diff: '',
+    truncated: false,
+    summary: {
+      added_lines: counts.added,
+      removed_lines: counts.removed,
+      modified_lines: counts.modified,
+      total_changed_chars: changedCharsFromOps(ops),
+    },
+  };
 }
 
 /**
@@ -214,8 +229,12 @@ function normalizeEditOrder(ops: EditOp[]): EditOp[] {
   return out;
 }
 
-function renderUnifiedDiff(rawOps: EditOp[]): string {
-  const ops = normalizeEditOrder(rawOps);
+/**
+ * Render a unified-diff string. **Caller must pass already-normalized ops.**
+ * `computeUnifiedDiff` runs `normalizeEditOrder` once before calling — keeping
+ * the normalize step out of the render path avoids a second O(n) pass.
+ */
+function renderUnifiedDiff(ops: EditOp[]): string {
   // Track old/new line numbers as we walk ops; emit @@ hunks grouped by
   // proximity (within 2*UNIFIED_CONTEXT lines counts as one hunk).
   type Group = { ops: EditOp[]; oldStart: number; newStart: number };
@@ -428,8 +447,13 @@ function computeSectionHunks(oldText: string, newText: string): HunksResult {
     }
   }
 
+  // Track which new sections (by reference) have been consumed as matches
+  // against old sections. After the old-loop, anything still NOT in this
+  // set is a pure addition. Using a Set keeps the final "section added"
+  // pass O(n) instead of the previous O(sections²) via `Array.includes`.
+  const consumedNew = new Set<Section>();
+
   const hunks: DiffHunk[] = [];
-  const usedNewTitles = new Set<string>();
   let totalAdded = 0;
   let totalRemoved = 0;
   let totalModified = 0;
@@ -442,7 +466,7 @@ function computeSectionHunks(oldText: string, newText: string): HunksResult {
     const before = oldPrelude?.body ?? '';
     const after = newPrelude?.body ?? '';
     if (before !== after) {
-      const inner = computeUnifiedDiff(before, after);
+      const inner = computeDiffSummaryOnly(before, after);
       if (before && after) {
         hunks.push({ before, after, change_type: 'modified' });
       } else if (after) {
@@ -474,11 +498,11 @@ function computeSectionHunks(oldText: string, newText: string): HunksResult {
     }
     // Pop the first unused candidate (handles duplicate titles deterministically).
     const newSec = candidates.shift()!;
-    usedNewTitles.add(oldSec.title);
+    consumedNew.add(newSec);
     if (oldSec.body === newSec.body) {
       continue;
     }
-    const inner = computeUnifiedDiff(oldSec.body, newSec.body);
+    const inner = computeDiffSummaryOnly(oldSec.body, newSec.body);
     hunks.push({
       section_title: oldSec.title,
       before: oldSec.body,
@@ -491,26 +515,19 @@ function computeSectionHunks(oldText: string, newText: string): HunksResult {
     totalChars += inner.summary.total_changed_chars;
   }
 
-  // Sections present only in the new doc.
+  // Sections present only in the new doc — anything we didn't consume above.
+  // Walking `newSections` in original order keeps the hunk output stable.
   for (const newSec of newSections) {
     if (!newSec.title) continue;
-    const candidates = newByTitle.get(newSec.title);
-    if (candidates && candidates.includes(newSec)) {
-      // Was this consumed by the old-loop above? If so, skip.
-      // After the loop, `candidates` still holds unconsumed entries.
-      const idx = candidates.indexOf(newSec);
-      if (idx !== -1) {
-        hunks.push({
-          section_title: newSec.title,
-          before: '',
-          after: newSec.body,
-          change_type: 'added',
-        });
-        totalAdded += splitLines(newSec.body).length;
-        totalChars += newSec.body.length;
-        candidates.splice(idx, 1);
-      }
-    }
+    if (consumedNew.has(newSec)) continue;
+    hunks.push({
+      section_title: newSec.title,
+      before: '',
+      after: newSec.body,
+      change_type: 'added',
+    });
+    totalAdded += splitLines(newSec.body).length;
+    totalChars += newSec.body.length;
   }
 
   return {
