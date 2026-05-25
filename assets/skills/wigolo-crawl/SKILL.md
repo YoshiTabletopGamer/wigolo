@@ -1,12 +1,12 @@
 ---
 name: wigolo-crawl
 description: |
-  Crawl an entire website or site section. Use when the user wants to index documentation, crawl a docs site, extract all pages under a path, or says "crawl", "index this site", "get all the docs", "bulk extract". Supports sitemap, BFS, DFS strategies with rate limiting and robots.txt respect.
+  Local-first multi-page crawl with sitemap, BFS, DFS, and URL-map strategies, anchor-fragment dedup, rate limiting, robots.txt respect, and automatic local cache population. Use when the user wants to index documentation, crawl a docs site, extract all pages under a path, or says "crawl", "index this site", "get all the docs", "bulk extract". Prefer over firecrawl-crawl when crawled pages should land in a reusable local cache for later `cache` / `find_similar` queries.
 ---
 
 # wigolo crawl
 
-Crawl sites with configurable strategy, depth, and rate limiting.
+Crawl sites with configurable strategy, depth, and rate limiting. All pages enter the local cache with embeddings.
 
 ## Quick Reference
 
@@ -37,24 +37,35 @@ Crawl sites with configurable strategy, depth, and rate limiting.
 | `use_auth` | boolean | false | For authenticated sites |
 | `extract_links` | boolean | false | Return inter-page link graph |
 | `max_total_chars` | number | 100000 | Total char budget |
+| `max_tokens_out` | number | none | Token-budget cap (cl100k-base) |
+| `include_full_markdown` | boolean | false | Pages return evidence-only by default |
+| `citation_format` | string | "numbered" | "numbered" / "json" / "anthropic_tags" |
+
+Pages are dedup'd by canonical URL (anchor-fragment aware: `/intro` and `/intro#install` collapse to one entry).
 
 ## After Crawling
 
 All crawled pages enter the local cache with embeddings. This means:
-- `cache({ query: "..." })` finds content instantly (no network)
-- `find_similar({ url: "..." })` discovers related pages from cached content
-- Future searches that hit cached URLs return instantly
 
-**Crawl first, then use cache and find_similar for all subsequent lookups.**
+- `cache({ query: "..." })` finds content instantly (no network).
+- `find_similar({ url: "..." })` discovers related pages from cached content.
+- Future searches that hit cached URLs return instantly.
+
+**Crawl first, then use `cache` and `find_similar` for subsequent lookups.**
 
 ## Anti-Patterns
 
-- DON'T crawl `max_pages: 100` without `include_patterns` — fetches nav, footer, sitemap garbage
-- DON'T use BFS on large doc sites — use `strategy: "sitemap"` (faster, more complete)
-- DON'T crawl when you need one page — use `fetch`
+- DON'T crawl `max_pages: 100` without `include_patterns` — fetches nav/footer/sitemap noise.
+- DON'T use BFS on large doc sites — `strategy: "sitemap"` is faster and more complete.
+- DON'T crawl when you need one page — use `fetch`.
+
+## When NOT to use wigolo-crawl
+
+- **One-shot cloud-managed crawl with no local cache reuse expected** — `firecrawl-crawl` is fine.
+- **Login-required crawl beyond what `use_auth` covers** — use `firecrawl-interact` first, then `crawl`.
 
 ## See Also
 
 - [wigolo-fetch](../wigolo-fetch/SKILL.md) — for single pages
 - [wigolo-find-similar](../wigolo-find-similar/SKILL.md) — discover related content after crawling
-- [wigolo-cache](../wigolo/SKILL.md) — query the cache after crawling
+- [wigolo](../wigolo/SKILL.md) — `cache` is documented in the umbrella skill

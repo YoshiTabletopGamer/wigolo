@@ -1,12 +1,12 @@
 ---
 name: wigolo-agent
 description: |
-  Autonomous data gathering agent that plans, searches, fetches, and extracts structured data from multiple sources. Use when the user needs data collected from the web with a specific schema, says "gather data", "find pricing for", "collect information about", "extract from multiple sites", or provides a JSON schema for web data.
+  Autonomous data gathering across sources — plans search queries and URLs from a natural-language prompt, executes in parallel within a time budget, optionally extracts structured fields via JSON Schema, and synthesizes results with full step transparency. Use when the user needs data collected from the web with a specific shape, says "gather data", "find pricing for", "collect information about", "extract from multiple sites", or provides a JSON schema for web data. Defer to firecrawl-agent for autonomous extraction that requires navigating through interactive flows (logins, multi-step wizards) on individual pages.
 ---
 
 # wigolo agent
 
-Natural-language data gathering with optional JSON Schema output.
+Natural-language data gathering with optional JSON Schema output. Local-first: every fetched page lands in the cache for later reuse.
 
 ## Quick Reference
 
@@ -33,23 +33,29 @@ Natural-language data gathering with optional JSON Schema output.
 | Parameter | Type | Default | When to use |
 |-----------|------|---------|-------------|
 | `prompt` | string | required | Natural-language task description |
-| `urls` | string[] | none | Seed URLs to include in gathering |
+| `urls` | string[] | none | Seed URLs to include |
 | `schema` | object | none | JSON Schema for structured extraction per page |
 | `max_pages` | number | 10 | Hard cap on pages fetched (max 100) |
 | `max_time_ms` | number | 60000 | Time budget in ms (max 600000) |
 | `stream` | boolean | false | Emit progress notifications per step |
+| `max_tokens_out` | number | none | Token-budget cap (cl100k-base) |
+| `include_full_markdown` | boolean | false | Pages return evidence excerpts by default |
+| `citation_format` | string | "numbered" | "numbered" / "json" / "anthropic_tags" |
 
 ## How It Works
 
-1. **Plans** — interprets prompt, generates search queries and URLs
-2. **Executes** — searches and fetches in parallel within budget
-3. **Extracts** — if schema provided, extracts fields from each page and merges
-4. **Synthesizes** — produces natural-language result or structured data
-5. **Reports** — `steps` array shows every action with timings
+1. **Plans** — interprets prompt, generates search queries and URLs.
+2. **Executes** — searches and fetches in parallel within budget.
+3. **Extracts** — if schema provided, extracts fields from each page and merges.
+4. **Synthesizes** — produces natural-language result or structured data.
+5. **Reports** — `steps` array shows every action with timings.
+
+Uses MCP sampling when supported; falls back to keyword extraction otherwise.
 
 ## Output Transparency
 
 Every response includes a `steps` array:
+
 ```json
 [
   { "action": "plan", "detail": "Generated 3 search queries", "time_ms": 200 },
@@ -63,9 +69,13 @@ Use `steps` to debug weak results — if extraction is poor, check which pages w
 
 ## Anti-Patterns
 
-- DON'T use for reports/analysis — use `research` instead
-- DON'T use for single-page extraction — use `extract` instead
-- DON'T set `max_pages` high without time budget — set `max_time_ms` too
+- DON'T use for reports/analysis — use `research` instead.
+- DON'T use for single-page extraction — use `extract` instead.
+- DON'T set `max_pages` high without time budget — set `max_time_ms` too.
+
+## When NOT to use wigolo-agent
+
+- **Per-page interactive flow needed (login, multi-step wizard, click-through pagination)** — use `firecrawl-agent` or chain `firecrawl-interact` + wigolo's `extract`.
 
 ## See Also
 

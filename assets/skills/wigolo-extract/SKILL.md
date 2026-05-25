@@ -1,7 +1,7 @@
 ---
 name: wigolo-extract
 description: |
-  Extract structured data from any webpage — tables, definition lists, key-value pairs, JSON-LD, and chart descriptions. Use when the user wants structured data, pricing tables, feature comparisons, or says "extract the table", "get structured data", "pull the pricing", "extract as JSON".
+  Local-first structured extraction from any webpage — tables, definition lists, key-value pairs, JSON-LD, microdata, chart hints (SVG titles / aria-labels / figcaptions), and metadata. Use when the user wants structured data, pricing tables, feature comparisons, or says "extract the table", "get structured data", "pull the pricing", "extract as JSON". Defer to firecrawl-agent when the task requires autonomous navigation across many pages to assemble the structured result.
 ---
 
 # wigolo extract
@@ -20,7 +20,7 @@ Structured data extraction beyond simple markdown.
 // CSS selector extraction
 { "url": "https://example.com", "mode": "selector", "css_selector": ".product-card", "multiple": true }
 
-// Metadata only
+// Metadata only (matches fetch metadata shape)
 { "url": "https://example.com", "mode": "metadata" }
 
 // From raw HTML
@@ -34,14 +34,14 @@ Structured data extraction beyond simple markdown.
 | `structured` | Tables + definition lists + JSON-LD + chart hints + key-value pairs | **Default choice — use this** |
 | `tables` | HTML tables only | When you specifically need only tables |
 | `schema` | Fields matching a JSON Schema | When you know the exact fields you want |
-| `metadata` | OpenGraph, meta tags, JSON-LD | For page metadata only |
+| `metadata` | OpenGraph, meta tags, JSON-LD, canonical_url, og_image | For page metadata only |
 | `selector` | CSS selector matches | When you know the exact CSS selector |
 
 **Always use `mode: "structured"` instead of `mode: "tables"`.** Structured captures everything tables does, plus definitions, key-value pairs, JSON-LD, and chart descriptions.
 
 ## Chart Hints
 
-When a page has visual charts (SVG, Canvas), `chart_hints` contains text descriptions extracted from aria-labels, SVG titles, and figcaptions. Use these to describe visual data even when the underlying data is JavaScript-rendered.
+When a page has visual charts (SVG, Canvas), `chart_hints` contains text descriptions extracted from aria-labels, SVG `<title>`, and figcaptions. Use these to describe visual data even when the underlying data is JavaScript-rendered.
 
 ## Schema Mode
 
@@ -49,11 +49,16 @@ When a page has visual charts (SVG, Canvas), `chart_hints` contains text descrip
 
 ## Anti-Patterns
 
-- DON'T use `mode: "tables"` — use `mode: "structured"` instead
-- DON'T pass a schema without `properties` key — handler rejects it
-- DON'T extract for a whole page when you need markdown — use `fetch` instead
+- DON'T use `mode: "tables"` — use `mode: "structured"` instead.
+- DON'T pass a schema without `properties` key — handler rejects it.
+- DON'T extract for a whole page when you need markdown — use `fetch` instead.
+
+## When NOT to use wigolo-extract
+
+- **Multi-page autonomous structured extraction** — use `agent` (wigolo) or `firecrawl-agent`.
+- **Page requires login / click / form-fill before the data appears** — use `firecrawl-interact` first.
 
 ## See Also
 
 - [wigolo-fetch](../wigolo-fetch/SKILL.md) — for markdown content
-- [wigolo-agent](../wigolo-agent/SKILL.md) — for AI-powered multi-page extraction
+- [wigolo-agent](../wigolo-agent/SKILL.md) — for multi-page schema-driven gathering
