@@ -48,12 +48,6 @@ docs/
 __pycache__/
 *.pyc
 
-# Autoresearch transient handoff (kept for reference, not for commit)
-AUTORESEARCH_HANDOFF.md
-AUTORESEARCH_MAC_SETUP.sh
-PATCH_BENCH_HARNESS.sh
-wigolo-bench.READY-TO-EXTRACT-NEXT-TO-WIGOLO.tar.gz
-
 # Private strategy doc (never commit)
 competitive-blueprint.md
 

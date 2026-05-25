@@ -15,11 +15,7 @@ export interface RelevanceJudgment {
   grade: 0 | 1 | 2 | 3;
 }
 
-export interface RelevanceMap {
-  judgments: RelevanceJudgment[];
-}
-
-export interface PrerecordedResult {
+interface PrerecordedResult {
   title: string;
   url: string;
   snippet: string;

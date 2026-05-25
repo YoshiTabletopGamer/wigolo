@@ -8,7 +8,7 @@ import type {
 
 const log = createLogger('search');
 
-export function getGrade(url: string, judgments: RelevanceJudgment[], queryId: string): number {
+function getGrade(url: string, judgments: RelevanceJudgment[], queryId: string): number {
   try {
     const judgment = judgments.find(j => j.queryId === queryId && j.url === url);
     return judgment ? judgment.grade : 0;
