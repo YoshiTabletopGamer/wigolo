@@ -66,6 +66,17 @@ export interface Config {
   llmProvider: string | null;
   llmCacheTtlDays: number;
   llmMaxCallsPerRequest: number;
+  /**
+   * TLS-impersonation HTTP tier mode (slice D2):
+   *   - 'off'  : tier disabled, current pipeline unchanged (DEFAULT)
+   *   - 'auto' : only invoked on anti-bot signal (403/429/503 or challenge body)
+   *   - 'on'   : tried first for cold domains, then HTTP, then Playwright
+   */
+  tlsTier: 'off' | 'auto' | 'on';
+  /** Browser fingerprint profile passed to the TLS-impersonation backend. */
+  tlsBrowser: string;
+  /** Successes required before a domain is auto-promoted to TLS-first routing. */
+  tlsSuccessThreshold: number;
 }
 
 function envStr(key: string, fallback: string | null = null): string | null {
@@ -183,6 +194,12 @@ export function getConfig(): Config {
     llmProvider: envStr('WIGOLO_LLM_PROVIDER'),
     llmCacheTtlDays: envInt('WIGOLO_LLM_CACHE_TTL_DAYS', 7),
     llmMaxCallsPerRequest: envInt('WIGOLO_LLM_MAX_CALLS_PER_REQUEST', 1),
+    tlsTier: (() => {
+      const raw = (envStr('WIGOLO_TLS_TIER') ?? 'off').toLowerCase();
+      return raw === 'auto' || raw === 'on' ? (raw as 'auto' | 'on') : 'off';
+    })(),
+    tlsBrowser: envStr('WIGOLO_TLS_BROWSER') ?? 'chrome_142',
+    tlsSuccessThreshold: envInt('WIGOLO_TLS_SUCCESS_THRESHOLD', 3),
   };
 
   return cachedConfig;
