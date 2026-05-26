@@ -326,16 +326,7 @@ export const EXTRACT_TOOL_SCHEMA = {
       type: 'string',
       enum: ['selector', 'tables', 'metadata', 'schema', 'structured', 'brand'],
       description:
-        'Extraction mode: selector (CSS), tables (HTML tables), metadata (meta tags + JSON-LD), ' +
-        'schema (fields matching a JSON Schema — every LLM-sourced value is verified against ' +
-        'source text; hallucinated fields are returned as null with a warning), ' +
-        'structured (tables + definition lists + JSON-LD + chart hints + key/value pairs — one-shot structured brief), ' +
-        'brand (logo / favicon / colors / fonts / social links with explicit provenance). ' +
-        'Brand provenance enums: logo ∈ {json-ld, og:logo, link[rel=icon], heuristic, unknown}; ' +
-        'colors ∈ {css-vars, palette-extraction, unknown}; ' +
-        'fonts ∈ {css-vars, css-rule, inline-style, google-fonts-link, unknown}. ' +
-        'Brand honesty contract: name is unset when no explicit name source emits one (the page <title> is NOT a name source); ' +
-        'logo_url is unset when no real logo source emits one (favicons NEVER promote to logo_url — they stay in favicon_url).',
+        'selector | tables | metadata | schema (LLM-sourced fields verified against source; hallucinated values returned as null) | structured | brand (logo/favicon/colors/fonts/social_links with provenance; favicons never promote to logo_url)',
     },
     css_selector: {
       type: 'string',

@@ -18,6 +18,7 @@ import {
 } from '../extraction/v1/schemas/index.js';
 import { isLocalLlmEnabled, extractWithLocalLlm } from '../extraction/v1/local-llm.js';
 import { extractBrandAsync } from '../extraction/brand.js';
+import { applyEvidenceFilter, getSourceText } from '../extraction/schema-truth.js';
 
 const log = createLogger('extract');
 
@@ -291,12 +292,36 @@ export async function handleExtract(
         html,
         url: sourceUrl ?? input.url ?? '',
       });
+      // C1: evidence-only constraint also applies to the local-llm path.
+      // Otherwise an LLM hallucination (e.g. `developer: "Nvidia"` for an
+      // MCP Wikipedia page that says "Anthropic") would escape unchecked.
+      const raw = (llmData ?? {}) as Record<string, unknown>;
+      const allFields = Object.keys(raw);
+      let finalData: Record<string, unknown> = raw;
+      let warnings: string[] | undefined;
+      if (allFields.length > 0) {
+        const sourceText = getSourceText(html);
+        const filtered = applyEvidenceFilter({
+          values: raw,
+          provenance: {}, // local-llm path has no separate provenance map
+          sourceText,
+          fields: allFields,
+        });
+        finalData = filtered.values;
+        if (filtered.rejectedFields.length > 0) {
+          warnings = [
+            `evidence-only filter: nulled ${filtered.rejectedFields.length} ` +
+              `field(s) the LLM proposed but were not present in source text ` +
+              `(${filtered.rejectedFields.join(', ')}).`,
+          ];
+        }
+      }
       return buildSuccessOutput(
-        (llmData ?? {}) as Record<string, unknown>,
+        finalData,
         sourceUrl,
         'schema',
         input.max_tokens_out,
-        undefined,
+        warnings,
         _start,
       );
     }
