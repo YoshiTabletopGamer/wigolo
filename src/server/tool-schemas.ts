@@ -135,7 +135,7 @@ export const SEARCH_TOOL_SCHEMA = {
     time_range: {
       type: 'string',
       enum: ['day', 'week', 'month', 'year'],
-      description: 'Freshness filter relative to now (day=last 24h, week=last 7d, month=last 30d, year=last 365d). Overrides any inferred date hint in the query text; engines that support date filtering receive the resolved range. Recall caveat: the post-rerank filter is intentionally conservative — only results with a confidently-extracted published_date are dropped when out of window. Pages with no parseable date (most of the web) pass through unfiltered, so this is a precision-boost, not a hard date-bound. For strict bounds use from_date / to_date together with a category that ships date-aware engines (news, papers).',
+      description: 'Freshness filter (day/week/month/year). Conservative: only drops results with a confidently-extracted published_date — pages with no parseable date pass through, so this is a precision-boost not a hard bound. For strict ranges use from_date+to_date with a date-aware category (news, papers).',
     },
     exact_match: {
       type: 'boolean',
