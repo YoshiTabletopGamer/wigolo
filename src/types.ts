@@ -111,6 +111,16 @@ export interface FetchOutput {
    * cached row predates the column being persisted.
    */
   http_status?: number;
+  /**
+   * Slice S7 (C5): partial-success marker. The HTTP fetch returned bytes and
+   * the page rendered, but a site-specific extractor (Reddit / Amazon) saw a
+   * known anti-bot / not-found challenge body and refused to emit `site_data`.
+   * `"blocked"` is the canonical value. Absent when the extractor either
+   * matched cleanly (site_data present) or never matched at all (generic
+   * page). Callers branch on this instead of treating the fallback markdown
+   * as a real site_data payload.
+   */
+  fetch_failed?: string;
 }
 
 export interface RawFetchResult {
@@ -161,6 +171,15 @@ export interface ExtractionResult {
    * extractor source for the field contract.
    */
   site_data?: Record<string, unknown>;
+  /**
+   * Slice S7 (C5): when a site extractor's URL matched but the response body
+   * was a known anti-bot / not-found challenge (Reddit "blocked by network
+   * security", Amazon "Page Not Found", etc.), the extractor sets this to the
+   * short reason code (e.g. `"blocked"`) instead of producing fake `site_data`.
+   * Surfaces on `FetchOutput.fetch_failed` so callers can branch honestly
+   * rather than treating the fallback markdown as a real site_data payload.
+   */
+  site_data_blocked?: string;
 }
 
 export type ExtractorType = 'defuddle' | 'readability' | 'turndown' | 'site-specific';
