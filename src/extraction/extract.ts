@@ -22,12 +22,39 @@ export function extractSelector(
   return el ? (el.textContent ?? '').trim() : '';
 }
 
+// Class / role tokens that mark a table as Wikipedia chrome rather than
+// content. Bench H6: extract tables on Wikipedia returned the navbox cells
+// ("Cite this page | Wikidata item") instead of the real article tables —
+// these patterns are page navigation / metadata, not data.
+const WIKIPEDIA_CHROME_CLASS_TOKENS = [
+  'navbox',
+  'infobox',
+  'infobox-data-row-only',
+  'sidebar',
+  'metadata',
+  'sistersitebox',
+  'mw-collapsible',
+];
+
+function isWikipediaChromeTable(table: Element): boolean {
+  const role = table.getAttribute('role')?.toLowerCase() ?? '';
+  if (role === 'navigation' || role === 'presentation') return true;
+  const className = table.getAttribute('class')?.toLowerCase() ?? '';
+  if (!className) return false;
+  const classes = className.split(/\s+/).filter(Boolean);
+  return classes.some((cls) => WIKIPEDIA_CHROME_CLASS_TOKENS.includes(cls));
+}
+
 export function extractTables(html: string): TableData[] {
   const { document: doc } = parseHTML(html);
-  const tables = doc.querySelectorAll('table');
+  const allTables = Array.from(doc.querySelectorAll('table'));
+  if (allTables.length === 0) return [];
+  // Skip chrome tables (navbox / infobox / role=navigation) so callers get
+  // real data tables only — H6.
+  const tables = allTables.filter((t) => !isWikipediaChromeTable(t));
   if (tables.length === 0) return [];
 
-  return Array.from(tables).map((table) => {
+  return tables.map((table) => {
     const caption = table.querySelector('caption')?.textContent?.trim() || undefined;
 
     const thElements = table.querySelectorAll('thead th');

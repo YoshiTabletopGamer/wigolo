@@ -274,4 +274,78 @@ describe('extractTables', () => {
     expect(result[0].headers).toEqual(['Name']);
     expect(result[0].rows).toEqual([{ Name: 'Alice' }]);
   });
+
+  // H6: tables mode on Wikipedia returns CSS-navbox cells ("Cite this page |
+  // Wikidata item") instead of real content tables. Skip Wikipedia chrome
+  // tables (navbox, role=navigation, infobox-data-row-only patterns) so callers
+  // see only meaningful data tables.
+  it('skips tables with class="navbox" (Wikipedia chrome)', () => {
+    const html = `<html><body>
+      <table class="navbox">
+        <tr><th>Cite this page</th><th>Wikidata item</th></tr>
+        <tr><td>Special:CiteThisPage</td><td>Q1234</td></tr>
+      </table>
+      <table>
+        <thead><tr><th>Year</th><th>Title</th></tr></thead>
+        <tbody><tr><td>2020</td><td>Real Content</td></tr></tbody>
+      </table>
+    </body></html>`;
+
+    const result = extractTables(html);
+    expect(result).toHaveLength(1);
+    expect(result[0].headers).toEqual(['Year', 'Title']);
+    expect(result[0].rows).toEqual([{ Year: '2020', Title: 'Real Content' }]);
+  });
+
+  it('skips tables with role="navigation" (Wikipedia chrome)', () => {
+    const html = `<html><body>
+      <table role="navigation">
+        <tr><th>Previous</th><th>Next</th></tr>
+        <tr><td>Page A</td><td>Page C</td></tr>
+      </table>
+      <table>
+        <thead><tr><th>Country</th><th>Capital</th></tr></thead>
+        <tbody><tr><td>France</td><td>Paris</td></tr></tbody>
+      </table>
+    </body></html>`;
+
+    const result = extractTables(html);
+    expect(result).toHaveLength(1);
+    expect(result[0].headers).toEqual(['Country', 'Capital']);
+  });
+
+  it('skips infobox chrome rows but keeps real data tables next to them', () => {
+    // A Wikipedia article's infobox is page metadata (founder, headquarters,
+    // logo) — not a data table. Skip the infobox entirely; keep the prose-
+    // adjacent content table that follows.
+    const html = `<html><body>
+      <table class="infobox">
+        <tr><th>Founded</th><td>2021</td></tr>
+        <tr><th>Headquarters</th><td>San Francisco</td></tr>
+      </table>
+      <table>
+        <thead><tr><th>Product</th><th>Release</th></tr></thead>
+        <tbody><tr><td>Claude</td><td>2023</td></tr></tbody>
+      </table>
+    </body></html>`;
+
+    const result = extractTables(html);
+    expect(result).toHaveLength(1);
+    expect(result[0].headers).toEqual(['Product', 'Release']);
+  });
+
+  it('keeps non-Wikipedia tables that happen to have a class', () => {
+    // Regression guard: only filter known Wikipedia chrome classes/roles.
+    // A plain styled table on a regular site must survive.
+    const html = `<html><body>
+      <table class="data-table styled">
+        <thead><tr><th>Key</th><th>Value</th></tr></thead>
+        <tbody><tr><td>foo</td><td>bar</td></tr></tbody>
+      </table>
+    </body></html>`;
+
+    const result = extractTables(html);
+    expect(result).toHaveLength(1);
+    expect(result[0].rows).toEqual([{ Key: 'foo', Value: 'bar' }]);
+  });
 });
