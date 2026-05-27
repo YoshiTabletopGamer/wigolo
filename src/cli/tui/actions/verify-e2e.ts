@@ -15,13 +15,16 @@
  *   and config-writer.ts key-path knowledge.
  * - hardFailureCount counts only 'fail' results — 'skipped' is not a failure.
  *
- * SP4 seam: synthesis probe looks for `resolveProviderKey` at runtime.
- * If SP4 hasn't landed, the synthesis probe falls back to the always-skip path.
- * TODO(SP4): once SP4 merges, wire resolveProviderKey through probeSynthesis
- * and remove the dynamic-import fallback in buildDefaultSynthesisProbe.
+ * SP4 seam: the synthesis probe loads `resolveProviderKey` from SP4's
+ * `src/security/key-store.ts` via a variable-specifier dynamic import. If SP4
+ * hasn't landed the import returns null and the probe falls back to an env-var
+ * check. TODO(SP4-merged): import resolveProviderKey statically once SP4 is on
+ * main and drop the env-var fallback.
  */
 
 import { readFileSync, existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { resolve } from 'node:path';
 import type { AgentId, InstallType } from '../agents.js';
 
 // ---------------------------------------------------------------------------
@@ -151,12 +154,18 @@ export interface McpWiringCheckInput {
   configPath: string | null;
   keyPath: string[];
   installType: InstallType;
+  /**
+   * Override the path-bound roots. Production omits this (defaults to home +
+   * cwd); tests pass a temp-dir root so fixtures don't have to live under the
+   * real home directory.
+   */
+  allowedRoots?: string[];
 }
 
 export async function checkMcpWiringForAgent(
   input: McpWiringCheckInput,
 ): Promise<McpWiringResult> {
-  const { agentId, agentName, configPath, keyPath, installType } = input;
+  const { agentId, agentName, configPath, keyPath, installType, allowedRoots } = input;
   const base: Omit<McpWiringResult, 'status' | 'detail'> = {
     agentId,
     agentName,
@@ -173,6 +182,18 @@ export async function checkMcpWiringForAgent(
     return { ...base, status: 'fail', detail: 'no configPath for agent — re-run `wigolo init`' };
   }
 
+  // Bound the read surface: this is a public export accepting an arbitrary
+  // configPath. Agent config files always live under the user's home dir or
+  // the current working directory (see agents.ts). Refuse to read anything
+  // outside those roots so a caller can't coax us into reading e.g. /etc/passwd.
+  if (!isPathWithinAllowedRoots(configPath, allowedRoots)) {
+    return {
+      ...base,
+      status: 'fail',
+      detail: `config path is outside the home/working directory (${configPath}) — refusing to read`,
+    };
+  }
+
   if (!existsSync(configPath)) {
     return {
       ...base,
@@ -186,6 +207,19 @@ export async function checkMcpWiringForAgent(
   }
 
   return checkJsonWiring(base, configPath, keyPath);
+}
+
+/**
+ * Returns true only when the resolved path lives under the user's home dir or
+ * the current working directory. Symlink-resolution is intentionally NOT done
+ * (we only readFileSync afterwards, and the existsSync gate covers missing
+ * files); this is a coarse bound on the input, not a full sandbox.
+ */
+function isPathWithinAllowedRoots(configPath: string, allowedRoots?: string[]): boolean {
+  const abs = resolve(configPath);
+  const roots = (allowedRoots && allowedRoots.length > 0 ? allowedRoots : [homedir(), process.cwd()])
+    .map((r) => resolve(r));
+  return roots.some((root) => abs === root || abs.startsWith(root + '/'));
 }
 
 function checkJsonWiring(
@@ -369,30 +403,29 @@ function buildDefaultExtractProbe(): () => Promise<CapabilityResult> {
 }
 
 async function buildDefaultSynthesisProbe(): Promise<() => Promise<CapabilityResult>> {
-  // TODO(SP4): once SP4 merges, import resolveProviderKey from
-  // 'src/integrations/cloud/llm/resolve-key.js' here and use it to detect
-  // whether a provider key is available before attempting synthesis.
-  // For now we check process.env directly for the known provider env vars.
   const SYNTHESIS_SKIP_DETAIL =
     'no provider key configured — set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY to enable synthesis';
 
-  // Try SP4 seam if it exists
-  // TODO(SP4): SP4 will add src/integrations/cloud/llm/resolve-key.ts with
-  // resolveProviderKey(provider). Once it lands, import it here and remove
-  // the env-var fallback below.
-  let resolveProviderKey: ((provider: string) => Promise<string | null>) | null = null;
-  try {
-    // Attempt to load the SP4 key-resolution module at runtime. We use a
-    // Function constructor so tsc never resolves the import path — it's
-    // intentionally deferred until SP4 lands. If the file doesn't exist the
-    // dynamic import rejects and we fall through to the env-var fallback.
-    const dynamicImport = new Function('m', 'return import(m)');
-    const mod: Record<string, unknown> = await dynamicImport('../../../integrations/cloud/llm/resolve-key.js');
-    if (mod && typeof mod.resolveProviderKey === 'function') {
-      resolveProviderKey = mod.resolveProviderKey as (provider: string) => Promise<string | null>;
+  // SP4 seam: SP4 ships `resolveProviderKey(provider, { dataDir })` from
+  // `src/security/key-store.ts` (keychain → encrypted file → env). We load it
+  // through a VARIABLE specifier so tsc never resolves the path at compile time
+  // (the module doesn't exist on this branch yet). When SP4 hasn't merged the
+  // import returns null and we fall through to the env-var check.
+  // TODO(SP4-merged): import resolveProviderKey directly from
+  //   '../../../security/key-store.js' and drop the variable-specifier dance +
+  //   env-var fallback once SP4 is on main.
+  type ResolveProviderKey = (
+    provider: string,
+    opts: { dataDir: string },
+  ) => Promise<string | undefined>;
+  let resolveProviderKey: ResolveProviderKey | undefined;
+  {
+    const seamSpec = '../../../security/key-store.js';
+    const mod = await import(seamSpec).catch(() => null);
+    const candidate = (mod as { resolveProviderKey?: unknown } | null)?.resolveProviderKey;
+    if (typeof candidate === 'function') {
+      resolveProviderKey = candidate as ResolveProviderKey;
     }
-  } catch {
-    // SP4 not yet landed — fall through to env-var check
   }
 
   return async (): Promise<CapabilityResult> => {
@@ -401,9 +434,11 @@ async function buildDefaultSynthesisProbe(): Promise<() => Promise<CapabilityRes
 
     if (resolveProviderKey) {
       // SP4 seam available
+      const { getConfig } = await import('../../../config.js');
+      const dataDir = getConfig().dataDir;
       const { allProviders } = await import('../../../integrations/cloud/llm/select.js');
       for (const provider of allProviders()) {
-        const key = await resolveProviderKey(provider).catch(() => null);
+        const key = await resolveProviderKey(provider, { dataDir }).catch(() => undefined);
         if (key) { hasKey = true; break; }
       }
     } else {

@@ -300,6 +300,7 @@ describe('checkMcpWiringForAgent', () => {
       configPath,
       keyPath: ['mcpServers', 'wigolo'],
       installType: 'config-file',
+      allowedRoots: [dir],
     });
     expect(result.status).toBe('pass');
     expect(result.detail).toMatch(/wigolo entry found/i);
@@ -315,6 +316,7 @@ describe('checkMcpWiringForAgent', () => {
       configPath,
       keyPath: ['mcpServers', 'wigolo'],
       installType: 'config-file',
+      allowedRoots: [dir],
     });
     expect(result.status).toBe('fail');
     expect(result.detail).toContain('wigolo entry missing');
@@ -329,6 +331,7 @@ describe('checkMcpWiringForAgent', () => {
       configPath,
       keyPath: ['mcpServers', 'wigolo'],
       installType: 'config-file',
+      allowedRoots: [dir],
     });
     expect(result.status).toBe('fail');
     expect(result.detail).toContain('config file not found');
@@ -357,6 +360,7 @@ describe('checkMcpWiringForAgent', () => {
       configPath,
       keyPath: ['mcp_servers', 'wigolo'],
       installType: 'config-toml',
+      allowedRoots: [dir],
     });
     expect(result.status).toBe('pass');
   });
@@ -371,7 +375,27 @@ describe('checkMcpWiringForAgent', () => {
       configPath,
       keyPath: ['mcp_servers', 'wigolo'],
       installType: 'config-toml',
+      allowedRoots: [dir],
     });
     expect(result.status).toBe('fail');
+  });
+
+  it('refuses to read a config path outside the allowed roots (path-bound guard)', async () => {
+    const { checkMcpWiringForAgent } = await import('../../../src/cli/tui/actions/verify-e2e.js');
+    // Write a real, parseable wigolo config OUTSIDE the allowed root so the
+    // only reason this fails is the path-bound guard, not a missing/invalid file.
+    const outsideDir = mkdtempSync(join(tmpdir(), 'wigolo-outside-'));
+    const configPath = join(outsideDir, 'mcp.json');
+    writeFileSync(configPath, JSON.stringify({ mcpServers: { wigolo: { command: 'npx' } } }));
+    const result = await checkMcpWiringForAgent({
+      agentId: 'cursor',
+      agentName: 'Cursor',
+      configPath,
+      keyPath: ['mcpServers', 'wigolo'],
+      installType: 'config-file',
+      allowedRoots: [dir], // configPath is NOT under dir
+    });
+    expect(result.status).toBe('fail');
+    expect(result.detail).toContain('outside the home/working directory');
   });
 });
