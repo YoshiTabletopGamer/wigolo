@@ -124,36 +124,8 @@ describe('SP1 — Lightpanda removed, Chromium-only fetch path', () => {
     }
   }, 60000);
 
-  it('lightpanda_routing table is dropped by migration on a DB that previously had it', () => {
-    // Simulate an existing DB that has the lightpanda_routing table (pre-SP1).
-    // After running initDatabase() (which applies migrations), the table must be gone.
-    const Database = require('better-sqlite3');
-    const rawDb = new Database(':memory:');
-    // Create the legacy table
-    rawDb.exec(`
-      CREATE TABLE IF NOT EXISTS lightpanda_routing (
-        domain TEXT PRIMARY KEY,
-        success_count INTEGER DEFAULT 0,
-        failure_count INTEGER DEFAULT 0,
-        prefer_chromium INTEGER DEFAULT 0,
-        last_success TEXT,
-        last_failure TEXT,
-        last_updated TEXT NOT NULL DEFAULT (datetime('now'))
-      );
-    `);
-    // Confirm it exists before migration
-    const before = rawDb.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='lightpanda_routing'",
-    ).all();
-    expect(before).toHaveLength(1);
-    rawDb.close();
-
-    // Now init fresh DB (initDatabase creates in-memory, applies migrations).
-    // The migration should drop the table.
-    const db = initDatabase(':memory:');
-    const after = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='lightpanda_routing'",
-    ).all() as { name: string }[];
-    expect(after).toHaveLength(0);
-  });
+  // NOTE: the migration DROP path (an existing DB that HAD lightpanda_routing →
+  // table dropped after applyMigrations) is covered directly against the
+  // migration runner in tests/unit/cache/migrations-runner.test.ts, where a
+  // single DB instance is seeded with the legacy table and then migrated.
 });

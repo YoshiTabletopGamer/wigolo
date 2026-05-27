@@ -92,6 +92,11 @@ describe('parseBrowserTypes', () => {
     expect(result).toEqual(['chromium']);
   });
 
+  it('rejects lightpanda — removed in SP1 — and falls back to chromium', () => {
+    // SP1 dropped Lightpanda; the parser must no longer recognise it.
+    expect(parseBrowserTypes('lightpanda')).toEqual(['chromium']);
+  });
+
   it('preserves ordering of first occurrence', () => {
     expect(parseBrowserTypes('firefox,chromium,webkit')).toEqual(['firefox', 'chromium', 'webkit']);
   });

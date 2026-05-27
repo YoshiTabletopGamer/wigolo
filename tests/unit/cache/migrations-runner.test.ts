@@ -121,6 +121,36 @@ describe('applyMigrations', () => {
     db.close();
   });
 
+  it('migration 007 drops a pre-existing lightpanda_routing table (SP1)', () => {
+    // Simulate a pre-SP1 DB that still has the routing telemetry table.
+    const db = new Database(dbPath);
+    db.exec('CREATE TABLE lightpanda_routing (domain TEXT PRIMARY KEY);');
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='lightpanda_routing'").all(),
+    ).toHaveLength(1);
+
+    applyMigrations(db, { vecLoaded: false });
+
+    // After migration the table must be gone, and the migration recorded.
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='lightpanda_routing'").all(),
+    ).toHaveLength(0);
+    const applied = (db.prepare('SELECT name FROM schema_migrations').all() as Array<{ name: string }>)
+      .map((r) => r.name);
+    expect(applied).toContain('007-drop-lp-routing');
+    db.close();
+  });
+
+  it('migration 007 is a no-op on a fresh DB without lightpanda_routing (SP1)', () => {
+    // Fresh DB never had the table; migration must apply cleanly without error.
+    const db = new Database(dbPath);
+    expect(() => applyMigrations(db, { vecLoaded: false })).not.toThrow();
+    const applied = (db.prepare('SELECT name FROM schema_migrations').all() as Array<{ name: string }>)
+      .map((r) => r.name);
+    expect(applied).toContain('007-drop-lp-routing');
+    db.close();
+  });
+
   it('_resetMigrationGuard clears the read-only flag for the next test', () => {
     const seed = new Database(dbPath);
     seed.close();
