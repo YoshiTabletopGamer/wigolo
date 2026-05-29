@@ -1,26 +1,26 @@
 /**
- * Smoke render + delegation tests for SP5 dashboard screens.
+ * Smoke render + delegation tests for the dashboard action screens that
+ * still ship behind the SettingsHome action bar.
  *
- * Why: the dashboard .tsx files must mount without throwing and delegate to
- * the correct action (no business logic in components). These tests mock the
- * actions layer (dynamic-imported inside the components) and getConfig, then
- * assert the screens render and call the right action after their effects fire.
+ * Why: each dashboard .tsx must mount without throwing and delegate to the
+ * correct action layer entry (no business logic in components). The tests
+ * mock the actions layer (dynamic-imported inside the components) and
+ * getConfig, then assert the screens render and call the right action after
+ * their effects fire.
+ *
+ * Coverage is intentionally narrow — Dashboard and DashboardCleanup were
+ * deleted in slice 12 because nothing reached them after the entry-router
+ * refactor; the screens still wired into router/ink.tsx remain tested here.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup } from 'ink-testing-library';
 
-const computeStorageMock = vi.hoisted(() => vi.fn());
-const getCacheStatsActionMock = vi.hoisted(() => vi.fn());
-const cleanupComponentMock = vi.hoisted(() => vi.fn());
 const exportConfigMock = vi.hoisted(() => vi.fn());
 const importConfigMock = vi.hoisted(() => vi.fn());
 const uninstallMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../../src/cli/tui/actions/index.js', () => ({
-  computeStorage: computeStorageMock,
-  getCacheStatsAction: getCacheStatsActionMock,
-  cleanupComponent: cleanupComponentMock,
   exportConfig: exportConfigMock,
   importConfig: importConfigMock,
   uninstall: uninstallMock,
@@ -30,8 +30,6 @@ vi.mock('../../../../src/config.js', () => ({
   getConfig: vi.fn(() => ({ dataDir: '/tmp/wigolo-test-datadir' })),
 }));
 
-import { Dashboard } from '../../../../src/cli/tui/components/Dashboard.js';
-import { DashboardCleanup } from '../../../../src/cli/tui/components/DashboardCleanup.js';
 import { DashboardExport } from '../../../../src/cli/tui/components/DashboardExport.js';
 import { DashboardUninstall } from '../../../../src/cli/tui/components/DashboardUninstall.js';
 
@@ -42,73 +40,10 @@ async function flush(): Promise<void> {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  computeStorageMock.mockResolvedValue({
-    items: [
-      { id: 'cache', label: 'Cache DB', path: '/x/wigolo.db', bytes: 1024 },
-      { id: 'embeddings', label: 'Embeddings index', path: '/x/embeddings', bytes: 2048 },
-      { id: 'models', label: 'ML models', path: '/x/models', bytes: 0 },
-      { id: 'browser', label: 'Browser engine', path: '/x/playwright-browsers', bytes: 0 },
-      { id: 'searxng', label: 'Search engine data', path: '/x/searxng', bytes: 0 },
-    ],
-    hogs: [
-      { id: 'embeddings', label: 'Embeddings index', path: '/x/embeddings', bytes: 2048 },
-      { id: 'cache', label: 'Cache DB', path: '/x/wigolo.db', bytes: 1024 },
-    ],
-    totalBytes: 3072,
-  });
-  getCacheStatsActionMock.mockResolvedValue({
-    totalEntries: 7, sizeMb: 0.5, oldest: '2025-01-01 00:00:00', newest: '2025-06-01 00:00:00',
-  });
 });
 
 afterEach(() => {
   cleanup();
-});
-
-describe('Dashboard — smoke render + data delegation', () => {
-  it('mounts without throwing', () => {
-    expect(() =>
-      render(<Dashboard onNavigate={() => {}} onBack={() => {}} />),
-    ).not.toThrow();
-  });
-
-  it('delegates to computeStorage and getCacheStatsAction on mount', async () => {
-    render(<Dashboard onNavigate={() => {}} onBack={() => {}} />);
-    await flush();
-    expect(computeStorageMock).toHaveBeenCalledWith('/tmp/wigolo-test-datadir');
-    expect(getCacheStatsActionMock).toHaveBeenCalledOnce();
-  });
-
-  it('renders storage hogs and cache stats after load', async () => {
-    const { lastFrame } = render(<Dashboard onNavigate={() => {}} onBack={() => {}} />);
-    await flush();
-    const frame = lastFrame()!;
-    expect(frame).toContain('Embeddings index');
-    expect(frame).toContain('Cache DB');
-    expect(frame).toContain('7 entries');
-  });
-});
-
-describe('DashboardCleanup — smoke render + cleanup delegation', () => {
-  it('mounts without throwing', () => {
-    expect(() => render(<DashboardCleanup onBack={() => {}} />)).not.toThrow();
-  });
-
-  it('delegates to computeStorage on mount to populate component sizes', async () => {
-    render(<DashboardCleanup onBack={() => {}} />);
-    await flush();
-    expect(computeStorageMock).toHaveBeenCalledWith('/tmp/wigolo-test-datadir');
-  });
-
-  it('triggers cleanupComponent when enter is pressed on a component', async () => {
-    cleanupComponentMock.mockResolvedValue({ ok: true, freedBytes: 1024 });
-    const { stdin } = render(<DashboardCleanup onBack={() => {}} />);
-    await flush();
-    // First item is 'cache' (CLEANABLE_IDS order); press enter.
-    stdin.write('\r');
-    await flush();
-    expect(cleanupComponentMock).toHaveBeenCalledWith('cache', '/tmp/wigolo-test-datadir');
-  });
 });
 
 describe('DashboardExport — smoke render + export/import delegation', () => {
@@ -137,8 +72,9 @@ describe('DashboardExport — smoke render + export/import delegation', () => {
     importConfigMock.mockResolvedValue({ ok: true });
     const { stdin } = render(<DashboardExport onBack={() => {}} />);
     await flush();
-    // Move down to 'import', then enter.
-    stdin.write('[B'); // down arrow
+    // Move down to 'import', then enter. ink-testing-library decodes the
+    // ANSI CSI sequence (ESC + '[B') into a `key.downArrow` event.
+    stdin.write('[B');
     await flush();
     stdin.write('\r');
     await flush();

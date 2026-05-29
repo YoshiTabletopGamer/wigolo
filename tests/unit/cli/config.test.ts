@@ -1,25 +1,11 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
-const readEnvSettingsMock = vi.hoisted(() =>
-  vi.fn().mockReturnValue({
-    WIGOLO_SEARCH: 'core',
-    WIGOLO_LOG_LEVEL: 'info',
-  }),
-);
 const runEntryMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue({
     resolution: { mode: 'home', firstRun: false, headless: false },
     mounted: true,
   }),
 );
-
-vi.mock('../../../src/cli/tui/actions/index.js', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../src/cli/tui/actions/index.js')>();
-  return {
-    ...actual,
-    readEnvSettings: readEnvSettingsMock,
-  };
-});
 
 vi.mock('../../../src/cli/tui/entry.js', () => ({
   runEntry: runEntryMock,

@@ -1,17 +1,18 @@
 /**
  * `wigolo config` / `wigolo dashboard` — reconfigure and management entry.
  *
- * In interactive TTY mode, mounts the Ink main-menu router (runInkConfig).
+ * In interactive TTY mode, mounts the Ink schema-driven shell in home mode.
  * In non-TTY / --plain / --non-interactive mode, prints a summary of current
- * settings and exits cleanly (headless parity requirement §8).
+ * settings and exits cleanly (headless parity requirement).
  *
- * SP5 headless flags (non-interactive parity):
+ * Headless flags (non-interactive parity):
  *   --export [path]      Export config to file (default: ~/wigolo-config-export.json)
  *   --import <path>      Import config from file
  *   --cleanup <component> Cleanup a component (cache|embeddings|models|browser|searxng)
  *   --uninstall [--yes]  Full uninstall (requires --yes to skip confirmation)
  *   --storage            Print storage usage map
  *   --cache-stats        Print cache statistics
+ *   --set key=value      Update a single non-secret setting (slice 12)
  *
  * HARD invariant: NEVER called from the MCP stdio path. Only mounted here,
  * from `init`, and from `doctor --interactive`.
@@ -19,6 +20,7 @@
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { getConfig } from '../config.js';
+import type { CategoryDef, FieldDef } from './tui/schema/types.js';
 
 const CONFIG_USAGE = [
   'Usage: wigolo config [options]',
@@ -32,6 +34,7 @@ const CONFIG_USAGE = [
   '  --export [path]          Export config to file (secrets excluded)',
   '  --import <path>          Import config from file',
   '  --cleanup <component>    Free storage for: cache|embeddings|models|browser|searxng',
+  '  --set <key>=<value>      Update a single non-secret setting headlessly',
   '  --uninstall              Full uninstall (requires --yes)',
   '  --yes                    Skip interactive confirmation (use with --uninstall)',
   '  --help, -h               Show this message',
@@ -49,6 +52,7 @@ interface ConfigFlags {
   exportRequested: boolean;
   import: string | null;
   cleanup: string | null;
+  set: string | null;
   uninstall: boolean;
   yes: boolean;
 }
@@ -63,6 +67,7 @@ function parseConfigFlags(args: string[]): ConfigFlags {
     exportRequested: false,
     import: null,
     cleanup: null,
+    set: null,
     uninstall: false,
     yes: false,
   };
@@ -129,6 +134,27 @@ function parseConfigFlags(args: string[]): ConfigFlags {
       continue;
     }
 
+    if (arg === '--set') {
+      const next = args[i + 1];
+      if (!next || next.startsWith('-') || !next.includes('=')) {
+        process.stderr.write('--set requires <key>=<value> (e.g. --set WIGOLO_SEARCH=hybrid)\n');
+        process.exit(1);
+      }
+      flags.set = next;
+      i += 2;
+      continue;
+    }
+    if (arg.startsWith('--set=')) {
+      const payload = arg.slice('--set='.length);
+      if (!payload.includes('=')) {
+        process.stderr.write('--set requires <key>=<value> (e.g. --set=WIGOLO_SEARCH=hybrid)\n');
+        process.exit(1);
+      }
+      flags.set = payload;
+      i++;
+      continue;
+    }
+
     // unknown flag — ignore (forward-compat)
     i++;
   }
@@ -144,7 +170,7 @@ export async function runConfig(args: string[]): Promise<number> {
     return 0;
   }
 
-  // ----- Headless SP5 actions -----
+  // ----- Headless actions -----
 
   if (flags.storage) {
     const { computeStorage } = await import('./tui/actions/index.js');
@@ -180,7 +206,6 @@ export async function runConfig(args: string[]): Promise<number> {
     const { exportConfig } = await import('./tui/actions/index.js');
     const defaultPath = join(homedir(), 'wigolo-config-export.json');
     const exportPath = flags.export ?? defaultPath;
-    const config = getConfig();
     const configPath = process.env.WIGOLO_CONFIG_PATH ?? join(homedir(), '.wigolo', 'config.json');
     const result = await exportConfig(exportPath, configPath);
     if (result.ok) {
@@ -221,6 +246,34 @@ export async function runConfig(args: string[]): Promise<number> {
       return 0;
     }
     process.stderr.write(`Cleanup failed: ${result.error}\n`);
+    return 1;
+  }
+
+  if (flags.set !== null) {
+    const eqIdx = flags.set.indexOf('=');
+    const key = flags.set.slice(0, eqIdx);
+    const value = flags.set.slice(eqIdx + 1);
+    const { applyHeadlessSet } = await import('./tui/actions/index.js');
+    const { CATALOG } = await import('./tui/schema/catalog.js');
+    const { defaultAgentTargets } = await import('./tui/state/agent-targets.js');
+    const { defaultSecretStore } = await import('./tui/state/secret-store.js');
+    const config = getConfig();
+    const configPath = process.env.WIGOLO_CONFIG_PATH ?? join(homedir(), '.wigolo', 'config.json');
+    const agents = defaultAgentTargets({ dataDir: config.dataDir });
+    const secretStore = defaultSecretStore({ dataDir: config.dataDir });
+    const result = await applyHeadlessSet({
+      key,
+      value,
+      configPath,
+      catalog: CATALOG,
+      agents,
+      secretStore,
+    });
+    if (result.status === 'ok') {
+      process.stdout.write(`${result.message}\n`);
+      return 0;
+    }
+    process.stderr.write(`${result.message}\n`);
     return 1;
   }
 
@@ -270,28 +323,20 @@ export async function runConfig(args: string[]): Promise<number> {
     });
   }
 
-  // Plain / non-interactive: print current settings.
-  // The actions layer is imported lazily here (not at module top) so the MCP
-  // stdio startup graph (src/index.ts → cli/config.ts is eager) stays lean and
-  // does not transitively pull system-check / agents / config-writer.
-  const { readEnvSettings, CURATED_ENV_VARS, ENV_GROUP_LABELS } = await import('./tui/actions/index.js');
+  // Plain / non-interactive: print current settings from the schema CATALOG.
+  // The catalog + persisted-config accessor stay the source of truth — no
+  // separate curated-env-vars list exists post-slice 12.
+  const { CATALOG } = await import('./tui/schema/catalog.js');
+  const { readPersistedConfig } = await import('../persisted-config.js');
   const config = getConfig();
-  const settings = readEnvSettings();
+  const configPath = process.env.WIGOLO_CONFIG_PATH ?? join(homedir(), '.wigolo', 'config.json');
+  const persisted = readPersistedConfig(configPath);
 
   process.stdout.write('Wigolo current settings\n');
   process.stdout.write('=======================\n\n');
 
-  const groupsSeen = new Set<string>();
-  for (const meta of CURATED_ENV_VARS) {
-    if (!groupsSeen.has(meta.group)) {
-      groupsSeen.add(meta.group);
-      process.stdout.write(`[${ENV_GROUP_LABELS[meta.group]}]\n`);
-    }
-    const val = settings[meta.settingsKey] ?? meta.defaultValue;
-    const isDefault = val === meta.defaultValue;
-    process.stdout.write(
-      `  ${meta.label.padEnd(30)} ${val}${isDefault ? ' (default)' : ''}\n`,
-    );
+  for (const category of CATALOG) {
+    printCategory(category, persisted.settings);
   }
 
   process.stdout.write(`\nData directory: ${config.dataDir}\n`);
@@ -302,9 +347,40 @@ export async function runConfig(args: string[]): Promise<number> {
   process.stdout.write('  wigolo config --export           Export settings to file\n');
   process.stdout.write('  wigolo config --import <path>    Import settings from file\n');
   process.stdout.write('  wigolo config --cleanup <comp>   Free storage per component\n');
+  process.stdout.write('  wigolo config --set k=v          Update a single non-secret setting\n');
   process.stdout.write('  wigolo config --uninstall --yes  Full uninstall\n');
 
   return 0;
+}
+
+/**
+ * Format one FieldDef as a one-line summary. Masked/secret fields show only a
+ * placeholder so a `--plain` print never leaks a credential.
+ */
+function formatFieldValue(field: FieldDef, raw: unknown): string {
+  if (field.kind === 'masked' || field.secret === true) {
+    return raw === undefined || raw === '' ? '(unset)' : '****';
+  }
+  if (raw === undefined || raw === null) {
+    return field.default === undefined ? '(unset)' : `${String(field.default)} (default)`;
+  }
+  if (Array.isArray(raw)) return raw.join(', ');
+  return String(raw);
+}
+
+function printCategory(
+  category: CategoryDef,
+  settings: Readonly<Record<string, unknown>>,
+): void {
+  process.stdout.write(`[${category.label}]\n`);
+  for (const field of category.fields) {
+    if (field.kind === 'readonly') continue;
+    const raw = settings[field.settingsPath];
+    const display = formatFieldValue(field, raw);
+    // 30-col label keeps long key names from breaking alignment.
+    process.stdout.write(`  ${field.key.padEnd(30)} ${display}\n`);
+  }
+  process.stdout.write('\n');
 }
 
 interface RunInkConfigOpts {
@@ -314,8 +390,7 @@ interface RunInkConfigOpts {
 }
 
 /**
- * Mounts the new schema-driven TUI in home mode. Replaces the legacy
- * `runInkConfig` import that lived in `src/cli/tui/router/ink-config.tsx`.
+ * Mounts the new schema-driven TUI in home mode.
  */
 async function runInkConfig(opts: RunInkConfigOpts): Promise<number> {
   const { runEntry } = await import('./tui/entry.js');
