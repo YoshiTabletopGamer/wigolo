@@ -69,7 +69,8 @@ function computeBreadcrumb(routeId: string | undefined, routes: readonly Sidebar
 export function App(props: AppProps): JSX.Element {
   const routes = props.routes ?? DEFAULT_ROUTES;
   const width = useShellWidth();
-  const breadcrumb = computeBreadcrumb(props.routeId, routes, props.paneTitle);
+  // breadcrumb only rendered when Header detects non-wide width; skip compute in wide mode
+  const breadcrumb = width === 'wide' ? undefined : computeBreadcrumb(props.routeId, routes, props.paneTitle);
   return (
     <FooterProvider>
       <Box flexDirection="column" height="100%">

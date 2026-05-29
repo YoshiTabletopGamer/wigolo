@@ -1,7 +1,8 @@
 /**
- * Integration test: narrow terminal (80 cols) hides Sidebar and shows breadcrumb.
+ * Integration test: narrow layout hides Sidebar and shows breadcrumb.
  *
- * At 80 columns useShellWidth() returns 'narrow', so:
+ * useShellWidth() mocked to return 'narrow' (does not exercise classifyWidth threshold).
+ * When width is 'narrow':
  *  - Sidebar group labels (SETTINGS / ACTIONS) must NOT appear.
  *  - The Header breadcrumb text must appear in place of the gradient title.
  */
