@@ -26,6 +26,11 @@ export const DEFAULT_ROUTES: readonly SidebarRoute[] = [
 interface AppProps {
   routes?: readonly SidebarRoute[];
   activeRoute: string;
+  /**
+   * Full view discriminator for MainPane transitions (e.g. 'home', 'category:browser',
+   * 'action:verify'). When omitted, falls back to activeRoute for backwards compat.
+   */
+  routeId?: string;
   dirtyByCategory: Record<string, number>;
   status: 'ok' | 'warn' | 'err';
   pending: number;
@@ -57,7 +62,7 @@ export function App(props: AppProps): JSX.Element {
             onSelect={props.onSelectRoute}
             focused={props.focusedPane === 'sidebar'}
           />
-          <MainPane title={props.paneTitle} focused={props.focusedPane === 'main'} routeId={props.activeRoute}>
+          <MainPane title={props.paneTitle} focused={props.focusedPane === 'main'} routeId={props.routeId ?? props.activeRoute}>
             {props.children}
           </MainPane>
         </Box>

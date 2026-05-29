@@ -7,8 +7,8 @@
  *
  * With reducedMotion=true, the dim phase is skipped entirely.
  */
-import React, { useState } from 'react';
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import React from 'react';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, cleanup } from 'ink-testing-library';
 import { Text } from 'ink';
 
@@ -41,19 +41,6 @@ describe('MainPane screen-transition dim', () => {
     vi.useFakeTimers();
     const { MainPane } = await import('../../../../../src/cli/tui/shell/MainPane.js');
 
-    function TestHarness() {
-      const [route, setRoute] = useState('browser');
-      return (
-        <>
-          <MainPane title="Test" focused={true} routeId={route}>
-            <Text>{route === 'browser' ? 'old content' : 'new content'}</Text>
-          </MainPane>
-          <Text onPress={() => setRoute('search')} />
-        </>
-      );
-    }
-
-    // Use rerender instead to avoid the onPress approach
     const { lastFrame, rerender } = render(
       <MainPane title="Test" focused={true} routeId="browser">
         <Text>old content</Text>

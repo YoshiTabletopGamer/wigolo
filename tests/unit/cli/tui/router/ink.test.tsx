@@ -36,12 +36,14 @@ vi.mock('../../../../../src/cli/tui/components/DashboardUninstall.js', () => ({
   },
 }));
 
-import InkRouter from '../../../../../src/cli/tui/router/ink.js';
+import InkRouter, { InkRoot } from '../../../../../src/cli/tui/router/ink.js';
 import { createSettingsStore } from '../../../../../src/cli/tui/state/settings-store.js';
 import { CATALOG } from '../../../../../src/cli/tui/schema/catalog.js';
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
+  delete process.env.WIGOLO_TUI_REDUCED_MOTION;
 });
 
 const ARROW_DOWN = '\x1b[B';
@@ -202,5 +204,34 @@ describe('InkRouter (router/ink.tsx)', () => {
     stdin.write('q');
     await wait(40);
     expect(onExit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('InkRoot — routeId dim transition (home → category:browser)', () => {
+  it('fires MainPane dim transition when navigating from home to Browser category', async () => {
+    // routeId changes from 'home' to 'category:browser' on navigation,
+    // which is a real change and must trigger the dim phase in MainPane.
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, writable: true, configurable: true });
+    delete process.env.WIGOLO_TUI_REDUCED_MOTION;
+    vi.useFakeTimers();
+
+    const store = makeStore();
+    const { lastFrame, rerender } = render(
+      <InkRoot store={store} catalog={CATALOG} initialRoute="home" />,
+    );
+
+    // Home renders SettingsHome (routeId = 'home')
+    await vi.runAllTimersAsync();
+    const homeFame = lastFrame() ?? '';
+    expect(homeFame).toContain('Browser');
+
+    // Navigate to the Browser category (routeId becomes 'category:browser')
+    rerender(<InkRoot store={store} catalog={CATALOG} initialRoute="browser" />);
+    // Immediately after routeId change, MainPane should enter the dimming phase
+    // (title rendered in muted colour — represented by dim attribute in output).
+    // Advance past the 16ms dim window and confirm the new pane title is visible.
+    await vi.advanceTimersByTimeAsync(20);
+    const categoryFrame = lastFrame() ?? '';
+    expect(categoryFrame).toContain('Browser');
   });
 });

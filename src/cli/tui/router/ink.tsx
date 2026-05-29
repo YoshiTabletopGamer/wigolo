@@ -146,6 +146,12 @@ function computeActiveRoute(view: ScreenView): string {
   return view.id;
 }
 
+function computeRouteId(view: ScreenView): string {
+  if (view.kind === 'home') return 'home';
+  if (view.kind === 'category') return `category:${view.id}`;
+  return `action:${view.id}`;
+}
+
 function computePaneTitle(view: ScreenView, catalog: ReadonlyArray<CategoryDef>): string {
   if (view.kind === 'home') return 'Settings';
   if (view.kind === 'category') {
@@ -265,6 +271,7 @@ export function InkRoot(props: InkRootProps): React.ReactElement {
   }, []);
 
   const activeRoute = computeActiveRoute(view);
+  const routeId = computeRouteId(view);
   const paneTitle = computePaneTitle(view, catalog);
   const dirtyByCategory = computeDirtyByCategory(store.dirtyKeys());
 
@@ -336,6 +343,7 @@ export function InkRoot(props: InkRootProps): React.ReactElement {
     <App
       routes={DEFAULT_ROUTES}
       activeRoute={activeRoute}
+      routeId={routeId}
       dirtyByCategory={dirtyByCategory}
       status="ok"
       pending={pending}
