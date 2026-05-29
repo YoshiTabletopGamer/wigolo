@@ -487,6 +487,82 @@ async function applyPropagationToAgent(
 }
 
 // ---------------------------------------------------------------------------
+// installAgent — primitive used by the Agents category screen (slice 9).
+// Writes/refreshes the wigolo server entry in one agent's config, preserves
+// any other entries, seeds the env block (merging with any pre-existing
+// keys), writes a backup first, and refuses to follow symlinks.
+//
+// The command/args shape is the canonical install recipe used by the SP7
+// agent handlers: `npx -y @staticn0va/wigolo` so the agent boots wigolo via
+// npx regardless of global install state.
+// ---------------------------------------------------------------------------
+
+export interface InstallAgentOpts {
+  target: AgentTarget;
+  /** Env block to seed under target.envPath. Existing keys are preserved. */
+  env: Readonly<Record<string, string>>;
+  fs?: WritableFs;
+}
+
+export interface InstallAgentResult {
+  ok: boolean;
+  reason?: string;
+}
+
+export async function installAgent(opts: InstallAgentOpts): Promise<InstallAgentResult> {
+  const fs = opts.fs ?? defaultWritableFs();
+  try {
+    await refuseSymlink(fs, opts.target.configPath);
+  } catch (err) {
+    return { ok: false, reason: errorMessage(err) };
+  }
+
+  let raw: string | null = null;
+  try {
+    raw = await fs.readFile(opts.target.configPath);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT') {
+      return { ok: false, reason: errorMessage(err) };
+    }
+    // Missing file is fine — we'll create the directory + file fresh.
+  }
+
+  // Only back up an existing file; first-write installs have nothing to back up.
+  if (raw !== null) {
+    try {
+      await writeAgentBackup(fs, opts.target, raw);
+    } catch (err) {
+      return { ok: false, reason: errorMessage(err) };
+    }
+  }
+
+  const root: JsonObject = raw !== null ? parseJsonOrEmpty(raw) : {};
+
+  // Ensure the server entry exists at target.serverPath.
+  const serverEntry = ensureNested(root, opts.target.serverPath);
+  serverEntry.command = 'npx';
+  serverEntry.args = ['-y', '@staticn0va/wigolo'];
+
+  // Merge env: ensure the env block exists, preserve unrelated keys, overwrite
+  // anything the caller passed in. Empty `env` is a valid no-op merge.
+  const envBlock = ensureNested(root, opts.target.envPath);
+  for (const [k, v] of Object.entries(opts.env)) {
+    envBlock[k] = v;
+  }
+
+  try {
+    await atomicWriteJson(fs, opts.target.configPath, root);
+  } catch (err) {
+    return { ok: false, reason: errorMessage(err) };
+  }
+
+  await pruneBackups(fs, opts.target);
+
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // uninstallAgent — primitive used by the Agents category screen (slice 9).
 // Removes the wigolo server entry from one agent's config, preserves other
 // servers, writes a backup, and prunes old backups.

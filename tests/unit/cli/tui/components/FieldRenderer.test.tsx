@@ -75,6 +75,21 @@ const maskedField: FieldDef = {
   secret: true,
 };
 
+const multiselectField: FieldDef = {
+  key: 'M',
+  settingsPath: 'm',
+  label: 'Agents',
+  kind: 'multiselect',
+  options: [
+    { value: 'claude-code', label: 'Claude Code (CLI)' },
+    { value: 'vscode', label: 'VS Code' },
+    { value: 'zed', label: 'Zed' },
+    { value: 'windsurf', label: 'Windsurf' },
+    { value: 'cursor', label: 'Cursor' },
+  ],
+  default: [],
+};
+
 describe('FieldRenderer', () => {
   it('renders select with current value and label', () => {
     const { lastFrame } = render(
@@ -701,5 +716,216 @@ describe('FieldRenderer', () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(onChange).not.toHaveBeenCalled();
     expect(onEditStart).not.toHaveBeenCalled();
+  });
+
+  it('multiselect: renders all 5 options with [ ] checkboxes when none selected', () => {
+    const { lastFrame } = render(
+      <FieldRenderer
+        field={multiselectField}
+        value={[]}
+        focused={false}
+        editing={false}
+        onChange={noop}
+        onEditStart={noop}
+        onEditDone={noop}
+        onEditCancel={noop}
+      />,
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame).toContain('Claude Code (CLI)');
+    expect(frame).toContain('VS Code');
+    expect(frame).toContain('Zed');
+    expect(frame).toContain('Windsurf');
+    expect(frame).toContain('Cursor');
+    // 5 unchecked rows.
+    expect(frame.match(/\[ \]/g)?.length ?? 0).toBe(5);
+  });
+
+  it('multiselect: rows for already-selected values render with [x] checkbox', () => {
+    const { lastFrame } = render(
+      <FieldRenderer
+        field={multiselectField}
+        value={['claude-code', 'cursor']}
+        focused={false}
+        editing={false}
+        onChange={noop}
+        onEditStart={noop}
+        onEditDone={noop}
+        onEditCancel={noop}
+      />,
+    );
+    const frame = lastFrame() ?? '';
+    expect(frame.match(/\[x\]/g)?.length ?? 0).toBe(2);
+    expect(frame.match(/\[ \]/g)?.length ?? 0).toBe(3);
+  });
+
+  it('multiselect: pre-filled options with hint:"installed" render the hint', () => {
+    const fieldWithHints: FieldDef = {
+      ...multiselectField,
+      options: [
+        { value: 'claude-code', label: 'Claude Code (CLI)', hint: 'installed' },
+        { value: 'vscode', label: 'VS Code' },
+        { value: 'zed', label: 'Zed', hint: 'installed' },
+        { value: 'windsurf', label: 'Windsurf' },
+        { value: 'cursor', label: 'Cursor' },
+      ],
+    };
+    const { lastFrame } = render(
+      <FieldRenderer
+        field={fieldWithHints}
+        value={[]}
+        focused={false}
+        editing={false}
+        onChange={noop}
+        onEditStart={noop}
+        onEditDone={noop}
+        onEditCancel={noop}
+      />,
+    );
+    const frame = lastFrame() ?? '';
+    // 'installed' appears twice (claude-code + zed rows).
+    expect(frame.match(/installed/g)?.length ?? 0).toBe(2);
+  });
+
+  it('multiselect: enter when focused (not editing) fires onEditStart', async () => {
+    const onEditStart = vi.fn();
+    const { stdin } = render(
+      <FieldRenderer
+        field={multiselectField}
+        value={[]}
+        focused={true}
+        editing={false}
+        onChange={noop}
+        onEditStart={onEditStart}
+        onEditDone={noop}
+        onEditCancel={noop}
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    stdin.write('\r');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(onEditStart).toHaveBeenCalled();
+  });
+
+  it('multiselect: in edit mode, space toggles the focused option in the buffer', async () => {
+    const { stdin, rerender, lastFrame } = render(
+      <FieldRenderer
+        field={multiselectField}
+        value={[]}
+        focused={true}
+        editing={false}
+        onChange={noop}
+        onEditStart={noop}
+        onEditDone={noop}
+        onEditCancel={noop}
+      />,
+    );
+    rerender(
+      <FieldRenderer
+        field={multiselectField}
+        value={[]}
+        focused={true}
+        editing={true}
+        onChange={noop}
+        onEditStart={noop}
+        onEditDone={noop}
+        onEditCancel={noop}
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    // Cursor starts at idx 0 (claude-code). Press space → should be checked.
+    stdin.write(' ');
+    await new Promise((r) => setTimeout(r, 30));
+    const frame = lastFrame() ?? '';
+    expect(frame.match(/\[x\]/g)?.length ?? 0).toBe(1);
+    expect(frame.match(/\[ \]/g)?.length ?? 0).toBe(4);
+  });
+
+  it('multiselect: enter in edit mode commits buffer via onChange(string[]) + onEditDone', async () => {
+    const onChange = vi.fn();
+    const onEditDone = vi.fn();
+    const { stdin, rerender } = render(
+      <FieldRenderer
+        field={multiselectField}
+        value={[]}
+        focused={true}
+        editing={false}
+        onChange={onChange}
+        onEditStart={noop}
+        onEditDone={onEditDone}
+        onEditCancel={noop}
+      />,
+    );
+    rerender(
+      <FieldRenderer
+        field={multiselectField}
+        value={[]}
+        focused={true}
+        editing={true}
+        onChange={onChange}
+        onEditStart={noop}
+        onEditDone={onEditDone}
+        onEditCancel={noop}
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    // Toggle first option (claude-code).
+    stdin.write(' ');
+    await new Promise((r) => setTimeout(r, 20));
+    // Down-arrow to row 2 (vscode), down to row 3 (zed), toggle.
+    stdin.write('[B');
+    stdin.write('[B');
+    await new Promise((r) => setTimeout(r, 20));
+    stdin.write(' ');
+    await new Promise((r) => setTimeout(r, 20));
+    // Commit.
+    stdin.write('\r');
+    await new Promise((r) => setTimeout(r, 30));
+    expect(onChange).toHaveBeenCalled();
+    // The committed payload must be a string[] in option order (not arbitrary
+    // toggle order) with the 2 toggled ids.
+    const lastCall = onChange.mock.calls[onChange.mock.calls.length - 1];
+    expect(Array.isArray(lastCall[0])).toBe(true);
+    expect((lastCall[0] as string[]).sort()).toEqual(['claude-code', 'zed']);
+    expect(onEditDone).toHaveBeenCalled();
+  });
+
+  it('multiselect: esc in edit mode cancels without firing onChange', async () => {
+    const onChange = vi.fn();
+    const onEditCancel = vi.fn();
+    const onEditDone = vi.fn();
+    const { stdin, rerender } = render(
+      <FieldRenderer
+        field={multiselectField}
+        value={['claude-code']}
+        focused={true}
+        editing={false}
+        onChange={onChange}
+        onEditStart={noop}
+        onEditDone={onEditDone}
+        onEditCancel={onEditCancel}
+      />,
+    );
+    rerender(
+      <FieldRenderer
+        field={multiselectField}
+        value={['claude-code']}
+        focused={true}
+        editing={true}
+        onChange={onChange}
+        onEditStart={noop}
+        onEditDone={onEditDone}
+        onEditCancel={onEditCancel}
+      />,
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    // Toggle something — buffer mutates but value[] is untouched.
+    stdin.write(' ');
+    await new Promise((r) => setTimeout(r, 20));
+    stdin.write(''); // ESC
+    await new Promise((r) => setTimeout(r, 30));
+    expect(onEditCancel).toHaveBeenCalled();
+    expect(onEditDone).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

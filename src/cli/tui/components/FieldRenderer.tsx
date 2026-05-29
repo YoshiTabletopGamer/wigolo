@@ -5,18 +5,20 @@
  * inputs (text/number/path). Edit-mode is parent-controlled via the `editing`
  * prop; ALL persistent value state lives in the parent's settings-store.
  *
- * Field kinds handled in this slice:
- *   - select   — left/right arrows cycle options; wraps at ends
- *   - toggle   — enter flips boolean
- *   - text     — typed input; enter commits, esc cancels
- *   - number   — typed input; enter commits if in [min,max]; esc cancels
- *   - path     — same as text, with display-only ~/  for homedir prefix
- *   - readonly — never focusable, never fires onChange
- *   - masked   — secret display (`****<last4>`); `r` replace / `x` remove;
- *                edit mode buffer never round-trips through props (typed
- *                value flows out via onChange on enter).
- *
- * Deferred (later slices): multiselect (slice 9).
+ * Field kinds handled:
+ *   - select      — left/right arrows cycle options; wraps at ends
+ *   - multiselect — list of checkboxes; space toggles focused option, enter
+ *                   commits buffer via onChange(string[]) + onEditDone, esc
+ *                   cancels. Options come pre-computed by the parent — each
+ *                   may carry a `hint` (e.g. 'installed') that renders dimmed.
+ *   - toggle      — enter flips boolean
+ *   - text        — typed input; enter commits, esc cancels
+ *   - number      — typed input; enter commits if in [min,max]; esc cancels
+ *   - path        — same as text, with display-only ~/  for homedir prefix
+ *   - readonly    — never focusable, never fires onChange
+ *   - masked      — secret display (`****<last4>`); `r` replace / `x` remove;
+ *                   edit mode buffer never round-trips through props (typed
+ *                   value flows out via onChange on enter).
  */
 import React, { useEffect, useState } from 'react';
 import { Box, Text, useInput } from 'ink';
@@ -97,6 +99,14 @@ export function FieldRenderer(props: FieldRendererProps): React.ReactElement {
     return value === undefined || value === null ? '' : String(value);
   });
 
+  // Ephemeral multiselect state: a Set of selected option values being edited,
+  // and the cursor index within the option list. Both reset on every edit-mode
+  // entry from the persisted value[] / 0. Outside editing they are inert.
+  const [multiBuffer, setMultiBuffer] = useState<Set<string>>(
+    () => new Set(Array.isArray(value) ? (value as string[]) : []),
+  );
+  const [multiCursor, setMultiCursor] = useState<number>(0);
+
   // Reset buffer whenever we (re)enter editing or the underlying value changes
   // outside of editing.
   useEffect(() => {
@@ -108,6 +118,11 @@ export function FieldRenderer(props: FieldRendererProps): React.ReactElement {
     // the prior secret never leaks back into the typed display.
     if (editing && field.kind === 'masked') {
       setBuffer('');
+    }
+    // Multiselect: seed the buffer from the persisted array, cursor at 0.
+    if (editing && field.kind === 'multiselect') {
+      setMultiBuffer(new Set(Array.isArray(value) ? (value as string[]) : []));
+      setMultiCursor(0);
     }
   }, [editing, field.kind, value]);
 
@@ -151,6 +166,56 @@ export function FieldRenderer(props: FieldRendererProps): React.ReactElement {
         if (key.return) {
           onChange(!value);
           onEditDone();
+        }
+        return;
+      }
+
+      // MULTISELECT — checkbox list. When idle, enter requests edit mode from
+      // the parent (so outer ↑/↓ field-navigation still wins). When editing,
+      // the field grabs ↑/↓ to walk options, space toggles the focused row,
+      // enter commits the buffer as a string[] via onChange + onEditDone,
+      // esc cancels without mutation.
+      if (field.kind === 'multiselect') {
+        const opts = field.options ?? [];
+        if (!editing) {
+          if (key.return) {
+            onEditStart();
+          }
+          return;
+        }
+        if (opts.length === 0) {
+          // Nothing to do — bounce out of edit mode rather than getting stuck.
+          if (key.return || key.escape) onEditCancel();
+          return;
+        }
+        if (key.escape) {
+          onEditCancel();
+          return;
+        }
+        if (key.return) {
+          const next: string[] = opts.map((o) => o.value).filter((v) => multiBuffer.has(v));
+          onChange(next);
+          onEditDone();
+          return;
+        }
+        if (key.upArrow) {
+          setMultiCursor((c) => (c > 0 ? c - 1 : opts.length - 1));
+          return;
+        }
+        if (key.downArrow) {
+          setMultiCursor((c) => (c < opts.length - 1 ? c + 1 : 0));
+          return;
+        }
+        if (input === ' ') {
+          const cur = opts[multiCursor];
+          if (!cur) return;
+          setMultiBuffer((prev) => {
+            const nextSet = new Set(prev);
+            if (nextSet.has(cur.value)) nextSet.delete(cur.value);
+            else nextSet.add(cur.value);
+            return nextSet;
+          });
+          return;
         }
         return;
       }
@@ -278,6 +343,16 @@ export function FieldRenderer(props: FieldRendererProps): React.ReactElement {
     { isActive: focused && field.kind !== 'readonly' },
   );
 
+  // Multiselect rendering uses its own dedicated branch (a multi-line list);
+  // the single-line `display` string covers every other kind.
+  const isMultiselect = field.kind === 'multiselect';
+  const multiOptions = isMultiselect ? (field.options ?? []) : [];
+  const multiSelectedSet: ReadonlySet<string> = isMultiselect
+    ? (editing
+      ? multiBuffer
+      : new Set(Array.isArray(value) ? (value as string[]) : []))
+    : new Set();
+
   // Display string
   const display = (() => {
     if (
@@ -294,6 +369,12 @@ export function FieldRenderer(props: FieldRendererProps): React.ReactElement {
       const hasValue = typeof value === 'string' && value.length > 0;
       if (!hasValue) return '[type to enter]';
       return renderValue(field, value);
+    }
+    if (isMultiselect) {
+      // Compact summary for the header row — the expanded list renders below.
+      const arr = Array.isArray(value) ? (value as string[]) : [];
+      if (arr.length === 0) return '(none)';
+      return arr.join(', ');
     }
     return renderValue(field, value);
   })();
@@ -332,6 +413,26 @@ export function FieldRenderer(props: FieldRendererProps): React.ReactElement {
           )}
         </Text>
       </Box>
+      {isMultiselect && (
+        <Box flexDirection="column" paddingLeft={4}>
+          {multiOptions.map((opt, idx) => {
+            const checked = multiSelectedSet.has(opt.value);
+            const rowFocused = editing && idx === multiCursor;
+            return (
+              <Box key={opt.value} flexDirection="row">
+                <Text>
+                  {rowFocused ? <Text color="cyan">{'❯ '}</Text> : '  '}
+                  {checked
+                    ? <Text color="green">{'[x] '}</Text>
+                    : <Text dimColor>{'[ ] '}</Text>}
+                  <Text bold={rowFocused}>{opt.label}</Text>
+                  {opt.hint ? <Text dimColor>{'   '}{opt.hint}</Text> : null}
+                </Text>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
       {field.help && (
         <Box paddingLeft={4}>
           <Text dimColor>{field.help}</Text>

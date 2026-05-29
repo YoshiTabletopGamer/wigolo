@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   save,
+  installAgent,
   uninstallAgent,
   type AgentTarget,
   type SecretStore,
@@ -511,5 +512,121 @@ describe('propagation.save', () => {
     expect(existsSync(backupDir)).toBe(true);
     const mode = statSync(backupDir).mode & 0o777;
     expect(mode).toBe(0o700);
+  });
+});
+
+describe('installAgent', () => {
+  let tmp: string;
+  let backupDir: string;
+  let agentPath: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'wigolo-install-'));
+    backupDir = join(tmp, 'backups');
+    agentPath = join(tmp, 'agent.json');
+  });
+
+  afterEach(() => {
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it('writes wigolo entry to target config at serverPath with canonical command/args', async () => {
+    const target = makeAgent('claude-code', agentPath, backupDir, ['mcpServers', 'wigolo']);
+
+    const result = await installAgent({ target, env: { WIGOLO_BROWSER_TYPES: 'chromium' } });
+
+    expect(result.ok).toBe(true);
+    expect(result.reason).toBeUndefined();
+
+    const cfg = readJson(agentPath);
+    const entry = navigate(cfg, ['mcpServers', 'wigolo']) as Record<string, unknown>;
+    expect(entry).toBeDefined();
+    expect(entry.command).toBe('npx');
+    expect(entry.args).toEqual(['-y', '@staticn0va/wigolo']);
+    const env = entry.env as Record<string, unknown>;
+    expect(env.WIGOLO_BROWSER_TYPES).toBe('chromium');
+  });
+
+  it('creates a new target config file when none exists (first install)', async () => {
+    const target = makeAgent('cursor', agentPath, backupDir, ['mcpServers', 'wigolo']);
+
+    expect(existsSync(agentPath)).toBe(false);
+
+    const result = await installAgent({ target, env: {} });
+    expect(result.ok).toBe(true);
+    expect(existsSync(agentPath)).toBe(true);
+
+    const cfg = readJson(agentPath);
+    const entry = navigate(cfg, ['mcpServers', 'wigolo']) as Record<string, unknown>;
+    expect(entry.command).toBe('npx');
+  });
+
+  it('preserves other entries in the target config (sibling servers + extra keys)', async () => {
+    writeAgentConfig(
+      agentPath,
+      ['mcpServers', 'wigolo'],
+      { command: 'old-cmd', args: ['old'], env: { OLD_KEY: 'keep' } },
+      {
+        mcpServers: { otherServer: { command: 'other', args: ['x'] } },
+        someUserPref: { foo: 'bar' },
+      },
+    );
+
+    const target = makeAgent('claude-code', agentPath, backupDir, ['mcpServers', 'wigolo']);
+    const result = await installAgent({
+      target,
+      env: { WIGOLO_BROWSER_TYPES: 'chromium' },
+    });
+    expect(result.ok).toBe(true);
+
+    const cfg = readJson(agentPath);
+    // Sibling server entries untouched.
+    const other = navigate(cfg, ['mcpServers', 'otherServer']) as Record<string, unknown>;
+    expect(other.command).toBe('other');
+    expect(other.args).toEqual(['x']);
+    // Unrelated top-level key untouched.
+    const someUserPref = cfg.someUserPref as Record<string, unknown>;
+    expect(someUserPref.foo).toBe('bar');
+    // Pre-existing env keys preserved + new ones merged in.
+    const env = navigate(cfg, ['mcpServers', 'wigolo', 'env']) as Record<string, unknown>;
+    expect(env.OLD_KEY).toBe('keep');
+    expect(env.WIGOLO_BROWSER_TYPES).toBe('chromium');
+    // Command/args refreshed to canonical install shape.
+    const entry = navigate(cfg, ['mcpServers', 'wigolo']) as Record<string, unknown>;
+    expect(entry.command).toBe('npx');
+    expect(entry.args).toEqual(['-y', '@staticn0va/wigolo']);
+  });
+
+  it('refuses a symlinked target config — bystander file untouched', async () => {
+    const innocentBystander = join(tmp, 'bystander.json');
+    writeFileSync(innocentBystander, JSON.stringify({ sensitive: 'data' }));
+    symlinkSync(innocentBystander, agentPath);
+
+    const target = makeAgent('claude-code', agentPath, backupDir, ['mcpServers', 'wigolo']);
+    const result = await installAgent({ target, env: { WIGOLO_BROWSER_TYPES: 'chromium' } });
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/refused: symlink/);
+
+    // Bystander untouched.
+    const bystander = JSON.parse(readFileSync(innocentBystander, 'utf-8'));
+    expect(bystander).toEqual({ sensitive: 'data' });
+  });
+
+  it('backs up the existing config before mutating (recoverable)', async () => {
+    writeAgentConfig(agentPath, ['mcpServers', 'wigolo'], { command: 'pre-install' });
+
+    const target = makeAgent('claude-code', agentPath, backupDir, ['mcpServers', 'wigolo']);
+    const result = await installAgent({ target, env: {} });
+    expect(result.ok).toBe(true);
+
+    expect(existsSync(backupDir)).toBe(true);
+    const backups = readdirSync(backupDir).filter((b) => b.startsWith('claude-code-'));
+    expect(backups.length).toBeGreaterThanOrEqual(1);
+    // The backup must contain the PRE-mutation state.
+    const backupRaw = readFileSync(join(backupDir, backups[0]), 'utf-8');
+    const backup = JSON.parse(backupRaw) as Record<string, unknown>;
+    const preEntry = navigate(backup, ['mcpServers', 'wigolo']) as Record<string, unknown>;
+    expect(preEntry.command).toBe('pre-install');
   });
 });
