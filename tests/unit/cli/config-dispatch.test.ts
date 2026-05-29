@@ -21,6 +21,7 @@ const cleanupComponentMock = vi.hoisted(() => vi.fn());
 const exportConfigMock = vi.hoisted(() => vi.fn());
 const importConfigMock = vi.hoisted(() => vi.fn());
 const uninstallMock = vi.hoisted(() => vi.fn());
+const applyHeadlessSetMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../src/cli/tui/actions/index.js', () => ({
   computeStorage: computeStorageMock,
@@ -29,10 +30,7 @@ vi.mock('../../../src/cli/tui/actions/index.js', () => ({
   exportConfig: exportConfigMock,
   importConfig: importConfigMock,
   uninstall: uninstallMock,
-  // unused-by-these-tests but imported on the plain path:
-  readEnvSettings: vi.fn(() => ({})),
-  CURATED_ENV_VARS: [],
-  ENV_GROUP_LABELS: {},
+  applyHeadlessSet: applyHeadlessSetMock,
 }));
 
 // Stub getConfig so dataDir is deterministic.
@@ -179,6 +177,65 @@ describe('export/import round-trip dispatch', () => {
     // The path round-trips: same file out and back in.
     expect((exportConfigMock.mock.calls[0] as [string])[0]).toBe('/rt.json');
     expect((importConfigMock.mock.calls[0] as [string])[0]).toBe('/rt.json');
+  });
+});
+
+describe('runConfig --set <key>=<value>', () => {
+  it('dispatches to applyHeadlessSet with the parsed key and value', async () => {
+    applyHeadlessSetMock.mockResolvedValueOnce({
+      status: 'ok',
+      message: 'Set WIGOLO_SEARCH = hybrid',
+      saved: ['searchBackend'],
+      propagated: ['claude-code'],
+      failed: [],
+    });
+    const code = await runConfig(['--set', 'WIGOLO_SEARCH=hybrid']);
+    expect(code).toBe(0);
+    expect(applyHeadlessSetMock).toHaveBeenCalledOnce();
+    const arg = applyHeadlessSetMock.mock.calls[0][0] as { key: string; value: string };
+    expect(arg.key).toBe('WIGOLO_SEARCH');
+    expect(arg.value).toBe('hybrid');
+  });
+
+  it('--set=<key>=<value> equals form parses correctly', async () => {
+    applyHeadlessSetMock.mockResolvedValueOnce({
+      status: 'ok',
+      message: 'Set WIGOLO_MAX_BROWSERS = 4',
+      saved: ['maxBrowsers'],
+      propagated: [],
+      failed: [],
+    });
+    const code = await runConfig(['--set=WIGOLO_MAX_BROWSERS=4']);
+    expect(code).toBe(0);
+    const arg = applyHeadlessSetMock.mock.calls[0][0] as { key: string; value: string };
+    expect(arg.key).toBe('WIGOLO_MAX_BROWSERS');
+    expect(arg.value).toBe('4');
+  });
+
+  it('preserves an = inside the value (e.g. base64 secrets, query strings)', async () => {
+    applyHeadlessSetMock.mockResolvedValueOnce({
+      status: 'ok',
+      message: '',
+      saved: [],
+      propagated: [],
+      failed: [],
+    });
+    await runConfig(['--set', 'CUSTOM_FLAG=key=val=trailing']);
+    const arg = applyHeadlessSetMock.mock.calls[0][0] as { key: string; value: string };
+    expect(arg.key).toBe('CUSTOM_FLAG');
+    expect(arg.value).toBe('key=val=trailing');
+  });
+
+  it('returns 1 when applyHeadlessSet reports a non-ok status', async () => {
+    applyHeadlessSetMock.mockResolvedValueOnce({
+      status: 'secret_rejected',
+      message: 'cannot set secrets',
+      saved: [],
+      propagated: [],
+      failed: [],
+    });
+    const code = await runConfig(['--set', 'BRAVE_API_KEY=sk-x']);
+    expect(code).toBe(1);
   });
 });
 

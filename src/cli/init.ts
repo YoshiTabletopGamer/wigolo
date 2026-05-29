@@ -268,8 +268,7 @@ interface RunInkInitOpts {
 }
 
 /**
- * Mounts the new schema-driven TUI in wizard mode. Replaces the legacy
- * `runInkInit` import that lived in `src/cli/tui/ink-init.tsx`.
+ * Mounts the schema-driven TUI in wizard mode.
  */
 async function runInkInit(opts: RunInkInitOpts): Promise<number> {
   const { runEntry } = await import('./tui/entry.js');
