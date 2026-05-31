@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const applyConfigsMock = vi.hoisted(() => vi.fn());
 
@@ -6,7 +9,8 @@ vi.mock('../../../../../src/cli/tui/config-writer.js', () => ({
   applyConfigs: applyConfigsMock,
 }));
 
-import { writeMcpConfig, unflattenDottedKey } from '../../../../../src/cli/tui/actions/write-config.js';
+import { writeMcpConfig, persistKey } from '../../../../../src/cli/tui/actions/write-config.js';
+import { readPersistedConfig, resetPersistedConfig } from '../../../../../src/persisted-config.js';
 import type { DetectedAgent } from '../../../../../src/cli/tui/agents.js';
 
 const mockDetected: DetectedAgent[] = [
@@ -79,20 +83,47 @@ describe('writeMcpConfig', () => {
   });
 });
 
-describe('unflattenDottedKey', () => {
-  it('single-segment path wraps value under one key', () => {
-    expect(unflattenDottedKey('foo', 1)).toEqual({ foo: 1 });
+describe('persistKey', () => {
+  let tmpDir: string;
+  let tmpConfig: string;
+  let originalConfigPath: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'wigolo-persist-unit-'));
+    tmpConfig = join(tmpDir, 'config.json');
+    originalConfigPath = process.env.WIGOLO_CONFIG_PATH;
+    process.env.WIGOLO_CONFIG_PATH = tmpConfig;
+    resetPersistedConfig();
   });
 
-  it('two-segment path produces nested object', () => {
-    expect(unflattenDottedKey('llm.apiKey', 'x')).toEqual({ llm: { apiKey: 'x' } });
+  afterEach(() => {
+    if (originalConfigPath === undefined) {
+      delete process.env.WIGOLO_CONFIG_PATH;
+    } else {
+      process.env.WIGOLO_CONFIG_PATH = originalConfigPath;
+    }
+    resetPersistedConfig();
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('three-segment path produces doubly-nested object', () => {
-    expect(unflattenDottedKey('a.b.c', true)).toEqual({ a: { b: { c: true } } });
+  it('throws when path is empty', async () => {
+    await expect(persistKey('', 42)).rejects.toThrow('persistKey: path must be non-empty');
   });
 
-  it('empty path returns empty object without crashing', () => {
-    expect(unflattenDottedKey('', 42)).toEqual({});
+  it('single-segment path writes value under the correct key', async () => {
+    await persistKey('provider', 'anthropic');
+    resetPersistedConfig();
+    const cfg = readPersistedConfig(tmpConfig);
+    expect((cfg.settings as Record<string, unknown>)?.provider).toBe('anthropic');
+  });
+
+  it('multi-segment path writes nested value and preserves siblings', async () => {
+    await persistKey('llm.apiKey', 'sk-abc');
+    await persistKey('llm.provider', 'openai');
+    resetPersistedConfig();
+    const cfg = readPersistedConfig(tmpConfig);
+    const llm = (cfg.settings as Record<string, unknown>)?.llm as Record<string, unknown>;
+    expect(llm?.apiKey).toBe('sk-abc');
+    expect(llm?.provider).toBe('openai');
   });
 });

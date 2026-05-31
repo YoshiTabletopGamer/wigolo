@@ -51,25 +51,6 @@ export async function writeMcpConfig(
 export type { WriteResult };
 
 /**
- * Convert a dotted key path ("llm.apiKey") into a nested object
- * ({ llm: { apiKey: value } }). Single-segment paths produce { key: value }.
- * An empty path returns {}.
- */
-export function unflattenDottedKey(path: string, value: unknown): Record<string, unknown> {
-  const segments = path.split('.');
-  if (segments.length === 0 || (segments.length === 1 && segments[0] === '')) return {};
-  const result: Record<string, unknown> = {};
-  let cursor: Record<string, unknown> = result;
-  for (let i = 0; i < segments.length - 1; i++) {
-    const seg = segments[i] as string;
-    cursor[seg] = {};
-    cursor = cursor[seg] as Record<string, unknown>;
-  }
-  cursor[segments[segments.length - 1] as string] = value;
-  return result;
-}
-
-/**
  * Deep-set a leaf value on an object at the given dotted path.
  * Mutates and returns `obj`. Intermediate objects are created if absent or if
  * a non-object value occupies a node on the path.
@@ -98,8 +79,13 @@ function deepSet(obj: Record<string, unknown>, path: string, value: unknown): Re
  * Called by settings-store.commitOne on every blur event.
  */
 export async function persistKey(path: string, value: unknown): Promise<void> {
+  if (!path) throw new Error('persistKey: path must be non-empty');
   const configPath = defaultConfigPath();
   const current = readPersistedConfig(configPath);
   const settings = deepSet({ ...current.settings }, path, value);
+  // We pass a fully-merged settings blob (not a partial patch) because
+  // writePersistedConfig does a SHALLOW merge — a nested patch like
+  // { llm: { apiKey: 'new' } } would clobber siblings under `llm`.
+  // `deepSet` above produced the full new settings tree; pass it as-is.
   return await Promise.resolve(writePersistedConfig(configPath, { settings }));
 }
