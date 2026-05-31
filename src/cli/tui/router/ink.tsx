@@ -8,6 +8,7 @@ import { useInput } from 'ink';
 import type { CategoryDef, CategoryId } from '../schema/types.js';
 import type { SettingsStore } from '../state/settings-store.js';
 import type { ToastStore } from '../state/toast-store.js';
+import type { ActivityStore } from '../state/activity-store.js';
 import { activityStore as defaultActivityStore } from '../state/activity-store-instance.js';
 import { SettingsHome, type SettingsHomeAction } from '../components/SettingsHome.js';
 import { CategoryScreen } from '../components/CategoryScreen.js';
@@ -32,10 +33,11 @@ function computeSaveState(
   dirtyCount: number,
   isSaving: boolean,
   currentToast: { message: string; severity: 'ok' | 'warn' | 'err'; group?: string } | null,
+  hasUnresolvedError: boolean,
 ): SaveState {
   if (isSaving) return 'saving';
   if (currentToast?.group === 'save') return 'saved-toast';
-  if (currentToast?.severity === 'err') return 'error';
+  if (hasUnresolvedError || currentToast?.severity === 'err') return 'error';
   if (dirtyCount > 0) return 'dirty';
   return 'idle-saved';
 }
@@ -72,6 +74,11 @@ export interface InkRootProps {
   productName?: string;
   /** Optional toast store for reactive toast prop. If omitted, toast is null. */
   toastStore?: ToastStore;
+  /**
+   * Optional activity store for reactive isSaving state. If omitted, falls
+   * back to the module-level defaultActivityStore singleton.
+   */
+  activityStore?: ActivityStore;
   /**
    * Seed the initial view. Defaults to 'home'. Added as a testability hook;
    * production entry always renders with default 'home' and drives navigation
@@ -128,8 +135,11 @@ export function InkRoot(props: InkRootProps): React.ReactElement {
     version,
     productName,
     toastStore,
+    activityStore: injectedActivityStore,
     initialRoute,
   } = props;
+
+  const liveActivityStore = injectedActivityStore ?? defaultActivityStore;
 
   const [view, setView] = useState<ScreenView>(() => resolveInitialView(initialRoute));
   const [focusedPane, setFocusedPane] = useState<'sidebar' | 'main'>('sidebar');
@@ -146,15 +156,15 @@ export function InkRoot(props: InkRootProps): React.ReactElement {
 
   // Reactive activity (saving in flight)
   const [isSaving, setIsSaving] = useState(() => {
-    const labels = defaultActivityStore.labels();
+    const labels = liveActivityStore.labels();
     return labels.some((l) => l.startsWith('save:'));
   });
   useEffect(() => {
-    const unsub = defaultActivityStore.subscribe(() => {
-      setIsSaving(defaultActivityStore.labels().some((l) => l.startsWith('save:')));
+    const unsub = liveActivityStore.subscribe(() => {
+      setIsSaving(liveActivityStore.labels().some((l) => l.startsWith('save:')));
     });
     return unsub;
-  }, []);
+  }, [liveActivityStore]);
 
   // Reactive toast
   const [toast, setToast] = useState<{ message: string; severity: 'ok' | 'warn' | 'err'; group?: string } | null>(
@@ -166,8 +176,26 @@ export function InkRoot(props: InkRootProps): React.ReactElement {
     return unsub;
   }, [toastStore]);
 
+  // Persistent error flag — set when a save-error toast fires, cleared only by a
+  // subsequent successful save. This keeps the header in 'error' state after the
+  // 5s toast TTL expires so the UI never lies "All changes saved ✓" after a
+  // failed write.
+  const [hasUnresolvedError, setHasUnresolvedError] = useState(false);
+  useEffect(() => {
+    if (!toastStore) return;
+    const unsub = toastStore.subscribe(() => {
+      const t = toastStore.current();
+      if (t?.severity === 'err' && t?.group === 'save-error') {
+        setHasUnresolvedError(true);
+      } else if (t?.severity === 'ok' && t?.group === 'save') {
+        setHasUnresolvedError(false);
+      }
+    });
+    return unsub;
+  }, [toastStore]);
+
   // Derived save-state (single computed value, no new globals)
-  const saveState = computeSaveState(dirtyCount, isSaving, toast);
+  const saveState = computeSaveState(dirtyCount, isSaving, toast, hasUnresolvedError);
   const headerStatus = saveStateToStatus(saveState);
   const headerLabel = saveStateLabel(saveState, dirtyCount, toast?.message ?? null);
 
@@ -324,7 +352,7 @@ export function InkRoot(props: InkRootProps): React.ReactElement {
       onPaletteClose={handlePaletteClose}
       helpOpen={helpOpen}
       onHelpClose={handleHelpClose}
-      activityStore={defaultActivityStore}
+      activityStore={liveActivityStore}
     >
       {currentScreen}
     </App>

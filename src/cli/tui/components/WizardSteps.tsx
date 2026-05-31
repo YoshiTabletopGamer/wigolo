@@ -26,6 +26,7 @@ import {
   runSystemCheck,
   type SystemCheckResult,
 } from '../system-check.js';
+import { defaultConfigPath } from '../../../persisted-config.js';
 
 /** One Ink render cycle plus margin — prevents double-advance on rapid Enter. */
 const ADVANCE_GUARD_MS = 50;
@@ -195,7 +196,7 @@ function SetupComplete({ onDone }: SetupCompleteProps): React.ReactElement {
     <Box flexDirection="column">
       <Text color={semantic.ok} bold>✓ Setup complete</Text>
       <Text dimColor>{'─'.repeat(24)}</Text>
-      <Text>Configuration saved.</Text>
+      <Text dimColor>Saved to {defaultConfigPath()}</Text>
       <Box marginTop={1}>
         <Text dimColor>Press ⏎ to continue (auto-dismiss in 1.5s)</Text>
       </Box>

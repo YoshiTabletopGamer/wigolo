@@ -61,7 +61,7 @@ describe('settings-store save toasts', () => {
     expect(toastStore.current()?.message).toBe('Saved · 3 fields');
   });
 
-  it('failed persistKey pushes err toast, not save toast', async () => {
+  it('failed persistKey pushes err toast with group save-error, not a save-group toast', async () => {
     persistReject = true;
     const toastStore = createToastStore();
     const store = createSettingsStore({}, toastStore);
@@ -70,7 +70,7 @@ describe('settings-store save toasts', () => {
     const t = toastStore.current();
     expect(t).not.toBeNull();
     expect(t!.severity).toBe('err');
-    expect(t!.group).toBeUndefined();
+    expect(t!.group).toBe('save-error');
   });
 
   it('blur without toastStore wired still works (no crash)', async () => {

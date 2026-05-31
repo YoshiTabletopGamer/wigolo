@@ -1,4 +1,5 @@
 import type { ToastStore } from './toast-store.js';
+import type { ActivityStore } from './activity-store.js';
 
 /** Convert a camelCase or dotted segment to a human-readable label. */
 function toLabel(path: string): string {
@@ -25,6 +26,7 @@ export interface SettingsStore {
 export function createSettingsStore(
   initial: Readonly<Record<string, unknown>>,
   toastStore?: ToastStore,
+  activityStore?: ActivityStore,
 ): SettingsStore {
   const current: Record<string, unknown> = { ...initial };
   const pending = new Map<string, unknown>();
@@ -44,6 +46,7 @@ export function createSettingsStore(
     // Build a settled promise that will be awaited sequentially.
     const next: Promise<void> = prev.then(async () => {
       const { persistKey } = await import('../actions/write-config.js');
+      const endActivity = activityStore?.begin('save:' + path);
       try {
         await persistKey(path, value);
         if (pending.get(path) === value) {
@@ -61,8 +64,11 @@ export function createSettingsStore(
           message: `Save failed: ${toLabel(path)}`,
           severity: 'err',
           ttl: 5000,
+          group: 'save-error',
         });
         throw err;
+      } finally {
+        endActivity?.();
       }
     });
     queues.set(path, next);

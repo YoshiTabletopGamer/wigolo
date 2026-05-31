@@ -141,7 +141,7 @@ describe('WizardSteps — setup complete ceremony', () => {
     expect(onDone).toHaveBeenCalledTimes(1);
   });
 
-  it('failure path shows error, onDone NOT auto-called after ceremony delay', async () => {
+  it('failure path calls onDone immediately without showing the ceremony screen', async () => {
     const saveImpl = vi.fn().mockResolvedValue({
       saved: [],
       propagated: [],
@@ -162,18 +162,9 @@ describe('WizardSteps — setup complete ceremony', () => {
       />,
     );
     await driveToFinish(stdin, saveImpl);
-    // With errors, wizard calls onDone immediately (existing behavior: wizard proceeds on error)
-    // The ceremony screen should NOT show on error path.
-    const frame = lastFrame() ?? '';
-    // If onDone was called, wizard unmounted — frame is empty or irrelevant.
-    // If onDone was not called, frame should show the error.
-    // Either the ceremony IS NOT shown (no "Setup complete") or onDone WAS called immediately.
-    const hasCeremony = /Setup complete/i.test(frame);
-    if (!hasCeremony) {
-      // Ceremony not shown on error path — correct
-      expect(hasCeremony).toBe(false);
-    }
-    // onDone is still called (wizard always exits), just no ceremony.
-    expect(onDone).toHaveBeenCalled();
+    // On save failure the wizard bypasses the ceremony and calls onDone immediately.
+    expect(onDone).toHaveBeenCalledTimes(1);
+    // The ceremony "Setup complete" screen must NOT appear on the error path.
+    expect(lastFrame() ?? '').not.toMatch(/Setup complete/i);
   });
 });
