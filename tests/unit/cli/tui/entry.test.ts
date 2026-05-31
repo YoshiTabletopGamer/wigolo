@@ -22,7 +22,10 @@ beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'wigolo-entry-test-'));
   presentPath = join(tmpDir, 'config.json');
   missingPath = join(tmpDir, 'missing.json');
-  writeFileSync(presentPath, JSON.stringify({ version: 1, settings: {} }), {
+  writeFileSync(presentPath, JSON.stringify({
+    version: 1,
+    settings: { llmProvider: 'anthropic', llmApiKey: 'sk-test' },
+  }), {
     mode: 0o600,
   });
 });

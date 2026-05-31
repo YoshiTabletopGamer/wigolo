@@ -25,9 +25,11 @@ import type { CategoryDef, FieldDef } from './tui/schema/types.js';
 const CONFIG_USAGE = [
   'Usage: wigolo config [options]',
   '',
-  'Opens the interactive reconfiguration menu.',
+  'Opens the interactive settings shell. On first run (or when required fields',
+  'are missing), automatically launches the setup wizard.',
   '',
   'Options:',
+  '  --force-wizard           Always launch the setup wizard (alias: wigolo init)',
   '  --plain, -p              Print current settings and exit (non-interactive)',
   '  --storage                Print storage usage map',
   '  --cache-stats            Print cache statistics',
@@ -46,6 +48,7 @@ const CLEANABLE = new Set(['cache', 'embeddings', 'models', 'browser', 'searxng'
 interface ConfigFlags {
   plain: boolean;
   help: boolean;
+  forceWizard: boolean;
   storage: boolean;
   cacheStats: boolean;
   export: string | null;  // path or null (use default when flag present, undefined when absent)
@@ -61,6 +64,7 @@ function parseConfigFlags(args: string[]): ConfigFlags {
   const flags: ConfigFlags = {
     plain: false,
     help: false,
+    forceWizard: false,
     storage: false,
     cacheStats: false,
     export: null,
@@ -79,6 +83,7 @@ function parseConfigFlags(args: string[]): ConfigFlags {
 
     if (arg === '--plain' || arg === '-p') { flags.plain = true; i++; continue; }
     if (arg === '--help' || arg === '-h') { flags.help = true; i++; continue; }
+    if (arg === '--force-wizard') { flags.forceWizard = true; i++; continue; }
     if (arg === '--storage') { flags.storage = true; i++; continue; }
     if (arg === '--cache-stats') { flags.cacheStats = true; i++; continue; }
     if (arg === '--yes' || arg === '-y') { flags.yes = true; i++; continue; }
@@ -320,6 +325,7 @@ export async function runConfig(args: string[]): Promise<number> {
       isTTY,
       ci: isCI,
       plain: flags.plain,
+      forceWizard: flags.forceWizard,
     });
   }
 
@@ -387,10 +393,20 @@ interface RunInkConfigOpts {
   isTTY: boolean;
   ci: boolean;
   plain: boolean;
+  /** When true, always launch the wizard regardless of config state. */
+  forceWizard?: boolean;
 }
 
 /**
- * Mounts the new schema-driven TUI in home mode.
+ * Mounts the new schema-driven TUI.
+ *
+ * Entry routing:
+ *   - forceWizard=true  → mode='wizard' (bypasses required-fields check)
+ *   - forceWizard=false → mode='auto'   (wizard if config missing or incomplete,
+ *                                        home if config has required fields)
+ *
+ * After wizard finish, the user drops directly into the settings shell with
+ * the new config loaded — there is no intermediate state or "rerun" prompt.
  */
 async function runInkConfig(opts: RunInkConfigOpts): Promise<number> {
   const { runEntry } = await import('./tui/entry.js');
@@ -413,7 +429,7 @@ async function runInkConfig(opts: RunInkConfigOpts): Promise<number> {
   const secretStore = defaultSecretStore({ dataDir: config.dataDir });
 
   const result = await runEntry({
-    mode: 'home',
+    mode: opts.forceWizard ? 'wizard' : 'auto',
     configPath,
     isTTY: opts.isTTY,
     ci: opts.ci,

@@ -3,8 +3,11 @@ import { parseInitFlags, FlagParseError } from './tui/flags.js';
 const INIT_USAGE = [
   'Usage: wigolo init [options]',
   '',
+  'Alias for: wigolo config --force-wizard',
+  'Always launches the interactive setup wizard, then drops into the settings shell.',
+  '',
   'Options:',
-  '  --non-interactive, -y   Skip interactive prompts',
+  '  --non-interactive, -y   Skip interactive prompts (uses plain text flow)',
   '  --agents=<csv>          Comma-separated agent ids (required with --non-interactive)',
   '  --skip-verify           Skip the post-install verify step',
   '  --plain                 Force plain (non-TUI) output',
@@ -44,12 +47,11 @@ export async function runInit(args: string[]): Promise<number> {
   const useInk = !flags.plain && !flags.nonInteractive && isTTY && !isCI;
 
   if (useInk) {
-    return runInkInit({
-      isTTY,
-      ci: isCI,
-      plain: flags.plain,
-      nonInteractive: flags.nonInteractive,
-    });
+    // Delegate to runConfig with --force-wizard: same code path, no divergent logic.
+    const { runConfig } = await import('./config.js');
+    const configArgs = ['--force-wizard'];
+    if (flags.plain) configArgs.push('--plain');
+    return runConfig(configArgs);
   }
 
   // Plain / non-interactive mode — use the existing text-based flow
@@ -260,59 +262,3 @@ async function runInitPlain(flags: InitFlagsResolved): Promise<number> {
   return 0;
 }
 
-interface RunInkInitOpts {
-  isTTY: boolean;
-  ci: boolean;
-  plain: boolean;
-  nonInteractive: boolean;
-}
-
-/**
- * Mounts the schema-driven TUI in wizard mode.
- */
-async function runInkInit(opts: RunInkInitOpts): Promise<number> {
-  const { runEntry } = await import('./tui/entry.js');
-  const { createSettingsStore } = await import('./tui/state/settings-store.js');
-  const { CATALOG } = await import('./tui/schema/catalog.js');
-  const { defaultAgentTargets } = await import('./tui/state/agent-targets.js');
-  const { defaultSecretStore } = await import('./tui/state/secret-store.js');
-  const { enableTuiMode } = await import('./tui/utils/suppress-logs.js');
-  const { getPackageVersion } = await import('./tui/version.js');
-  const { defaultConfigPath, readPersistedConfig } = await import('../persisted-config.js');
-  const { getConfig } = await import('../config.js');
-  const { toastStore } = await import('./tui/state/toast-store-instance.js');
-  const { activityStore } = await import('./tui/state/activity-store-instance.js');
-
-  enableTuiMode();
-  const configPath = defaultConfigPath();
-  const persisted = readPersistedConfig(configPath);
-  const store = createSettingsStore(persisted.settings, toastStore, activityStore);
-  const config = getConfig();
-  const agents = defaultAgentTargets({ dataDir: config.dataDir });
-  const secretStore = defaultSecretStore({ dataDir: config.dataDir });
-
-  const result = await runEntry({
-    mode: 'wizard',
-    configPath,
-    isTTY: opts.isTTY,
-    ci: opts.ci,
-    plain: opts.plain,
-    nonInteractive: opts.nonInteractive,
-    store,
-    catalog: CATALOG,
-    agents,
-    secretStore,
-    version: getPackageVersion(),
-    productName: 'wigolo',
-  });
-
-  if (!result.mounted) {
-    // The headless branch in resolveEntry kicked in. This shouldn't happen
-    // for the wizard path because the caller already gated on TTY/CI/--plain
-    // and routed those to runInitPlain, but surface a sensible error in case
-    // the gating ever drifts.
-    process.stderr.write('First-run wizard requires a terminal. Use --plain or --non-interactive in scripts.\n');
-    return 1;
-  }
-  return 0;
-}
