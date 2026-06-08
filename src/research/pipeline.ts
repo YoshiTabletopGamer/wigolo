@@ -13,7 +13,7 @@ import { truncateSmartly } from '../search/truncate.js';
 import { cacheContent } from '../cache/store.js';
 import { getEmbeddingService } from '../embedding/embed.js';
 import { checkSamplingSupport, type SamplingCapableServer } from '../search/sampling.js';
-import { isLlmConfigured as isLocalLlmEnabled } from '../integrations/cloud/llm/run.js';
+import { isLlmConfiguredWithKeyStore } from '../integrations/cloud/llm/run.js';
 import type {
   ResearchInput,
   ResearchOutput,
@@ -191,7 +191,7 @@ export async function runResearchPipeline(
     let finalReport = synthesisResult.report;
     let finalCitations: Citation[] = synthesisResult.citations;
     let localSynthesisText: string | undefined;
-    if (!synthesisResult.samplingUsed && isLocalLlmEnabled()) {
+    if (!synthesisResult.samplingUsed && await isLlmConfiguredWithKeyStore()) {
       try {
         const localSources = sources
           .filter((s) => s.fetched && s.markdown_content.length > 0)

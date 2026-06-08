@@ -7,7 +7,7 @@ import {
   requestSampling,
   checkSamplingSupport,
 } from '../search/sampling.js';
-import { isLlmConfigured, runLlmText } from '../integrations/cloud/llm/run.js';
+import { isLlmConfiguredWithKeyStore, runLlmText } from '../integrations/cloud/llm/run.js';
 import type {
   AgentInput,
   AgentOutput,
@@ -231,8 +231,9 @@ async function synthesizeResult(
 
   // Prefer the operator's explicit LLM provider over host-provided sampling so
   // agent matches the research + search/format=answer contract — one wired
-  // backend drives synthesis across every Gemini-capable tool.
-  if (isLlmConfigured()) {
+  // backend drives synthesis across every Gemini-capable tool. Keystore-aware
+  // so keychain/file keys (zero-env init) are recognized, not just env vars.
+  if (await isLlmConfiguredWithKeyStore()) {
     try {
       const result = await synthesizeViaLlmRunner(prompt, fetchedSources);
       if (result) return { result, samplingUsed: false, llmUsed: true };
