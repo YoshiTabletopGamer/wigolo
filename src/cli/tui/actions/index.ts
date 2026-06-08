@@ -9,7 +9,6 @@
  * Exported actions:
  *   detectSystem       — system requirements check
  *   writeMcpConfig     — write MCP config entries with per-item results
- *   installBrowser     — run warmup for browser + ML models
  *   storeProviderKey   — store a provider API key securely
  *   readProviderKey    — read masked provider key + location
  *   deleteProviderKey  — delete a stored provider key
@@ -30,9 +29,6 @@ export type { SystemInfo } from './detect-system.js';
 
 export { writeMcpConfig } from './write-config.js';
 export type { WriteMcpConfigOptions, WriteMcpConfigResult } from './write-config.js';
-
-export { installBrowser } from './install-browser.js';
-export type { InstallBrowserOptions, InstallBrowserResult } from './install-browser.js';
 
 export { applyHeadlessSet } from './headless-set.js';
 export type {
