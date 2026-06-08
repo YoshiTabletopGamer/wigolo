@@ -67,6 +67,12 @@ export interface Config {
   embeddingModel: string;
   embeddingIdleTimeoutMs: number;
   embeddingMaxTextLength: number;
+  /**
+   * Search backend selector. Resolves `WIGOLO_SEARCH` env > persisted
+   * `searchBackend` in config.json > built-in default (null = 'core').
+   * `null` means "unset"; the search-provider factory treats it as 'core'.
+   */
+  searchBackend: string | null;
   llmProvider: string | null;
   llmCacheTtlDays: number;
   llmMaxCallsPerRequest: number;
@@ -284,6 +290,7 @@ export function getConfig(): Config {
     embeddingModel: envStr('WIGOLO_EMBEDDING_MODEL', 'BAAI/bge-small-en-v1.5', settings, 'embeddingModel') ?? 'BAAI/bge-small-en-v1.5',
     embeddingIdleTimeoutMs: envInt('WIGOLO_EMBEDDING_IDLE_TIMEOUT', 1800000, settings, 'embeddingIdleTimeoutMs'),
     embeddingMaxTextLength: envInt('WIGOLO_EMBEDDING_MAX_TEXT_LENGTH', 8000, settings, 'embeddingMaxTextLength'),
+    searchBackend: envStr('WIGOLO_SEARCH', null, settings, 'searchBackend'),
     llmProvider: envStr('WIGOLO_LLM_PROVIDER', null, settings, 'llmProvider'),
     llmCacheTtlDays: envInt('WIGOLO_LLM_CACHE_TTL_DAYS', 7, settings, 'llmCacheTtlDays'),
     llmMaxCallsPerRequest: envInt('WIGOLO_LLM_MAX_CALLS_PER_REQUEST', 1, settings, 'llmMaxCallsPerRequest'),

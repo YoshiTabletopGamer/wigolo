@@ -100,6 +100,35 @@ describe('getConfig() — persists numeric fields from config.json', () => {
   });
 });
 
+describe('getConfig() — searchBackend (A1 runtime self-config)', () => {
+  it('reads searchBackend from config.json when WIGOLO_SEARCH env absent', () => {
+    const cfgPath = join(dir, 'config.json');
+    writeFileSync(cfgPath, JSON.stringify({ version: 1, settings: { searchBackend: 'hybrid' } }));
+    setConfigPath(cfgPath);
+    delete process.env.WIGOLO_SEARCH;
+    resetConfig(); resetPersistedConfig();
+    expect(getConfig().searchBackend).toBe('hybrid');
+  });
+
+  it('WIGOLO_SEARCH env overrides config.json searchBackend', () => {
+    const cfgPath = join(dir, 'config.json');
+    writeFileSync(cfgPath, JSON.stringify({ version: 1, settings: { searchBackend: 'hybrid' } }));
+    setConfigPath(cfgPath);
+    process.env.WIGOLO_SEARCH = 'searxng';
+    resetConfig(); resetPersistedConfig();
+    expect(getConfig().searchBackend).toBe('searxng');
+  });
+
+  it('defaults searchBackend to null when neither env nor config.json set', () => {
+    const cfgPath = join(dir, 'config.json');
+    writeFileSync(cfgPath, JSON.stringify({ version: 1, settings: {} }));
+    setConfigPath(cfgPath);
+    delete process.env.WIGOLO_SEARCH;
+    resetConfig(); resetPersistedConfig();
+    expect(getConfig().searchBackend).toBeNull();
+  });
+});
+
 describe('getConfig() — legacy config.json migration', () => {
   it('reads browser from version-less legacy config file', () => {
     const cfgPath = join(dir, 'config.json');

@@ -3,6 +3,7 @@ import type { SmartRouter } from '../fetch/router.js';
 import type { BackendStatus } from '../server/backend-status.js';
 import type { SamplingCapableServer } from '../search/sampling.js';
 import { createLogger } from '../logger.js';
+import { getConfig } from '../config.js';
 
 const log = createLogger('providers');
 
@@ -30,9 +31,10 @@ let cached: Promise<SearchProvider> | null = null;
 
 export function getSearchProvider(): Promise<SearchProvider> {
   if (cached) return cached;
-  // Read the raw env directly so unknown values surface to the caller.
-  const raw = process.env.WIGOLO_SEARCH;
-  let which = raw === undefined || raw === '' ? 'core' : raw;
+  // Resolve through getConfig() so a persisted `searchBackend` in config.json is
+  // honored at runtime (env still wins — precedence is handled in config.ts).
+  const raw = getConfig().searchBackend;
+  let which = raw === null || raw === '' ? 'core' : raw;
   if (which === 'v1') {
     log.warn('WIGOLO_SEARCH=v1 is deprecated, use WIGOLO_SEARCH=core (alias kept for one release)');
     which = 'core';
