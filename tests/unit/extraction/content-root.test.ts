@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { isolateContentRoot } from '../../../src/extraction/v1/content-root.js';
+
+const reactShell = readFileSync(
+  join(import.meta.dirname, '../../fixtures/extraction/react-reference-shell.html'),
+  'utf-8',
+);
 
 const body = (inner: string) => `<html><head><title>T</title></head><body>${inner}</body></html>`;
 const fill = (n: number) => 'word '.repeat(n); // ~5 chars each
@@ -93,5 +100,11 @@ describe('isolateContentRoot', () => {
     // primary guarantee is the try/catch — assert idempotent no-root path here
     const junk = 'not really <<< html';
     expect(typeof isolateContentRoot(junk)).toBe('string');
+  });
+
+  it('react.dev fixture: nav cluster removed, reference body kept', () => {
+    const out = isolateContentRoot(reactShell);
+    expect(out).not.toMatch(/Learn.*Reference.*Community.*Blog/s);
+    expect(out).toMatch(/reference|component|hook/i);
   });
 });

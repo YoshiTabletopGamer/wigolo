@@ -12,6 +12,11 @@ const articleFixture = readFileSync(
   'utf-8',
 );
 
+const reactShell = readFileSync(
+  join(import.meta.dirname, '../fixtures/extraction/react-reference-shell.html'),
+  'utf-8',
+);
+
 function recipeFixture(): string {
   const recipe = {
     '@context': 'https://schema.org',
@@ -143,5 +148,18 @@ describe('extract pipeline v1 — integration via factory', () => {
     );
     expect(Array.isArray(result.links)).toBe(true);
     expect(Array.isArray(result.images)).toBe(true);
+  });
+
+  it('SPA reference page → main content at small char cap, not nav-only', async () => {
+    const provider = await getExtractProvider();
+    const result = await provider.extract(reactShell, 'https://react.dev/reference/react', {
+      maxChars: 1200,
+    });
+    // body content present
+    expect(result.markdown).toMatch(/reference|component|hook|api/i);
+    // nav-only failure mode absent: the nav link cluster must not dominate the head of output
+    const head = result.markdown.slice(0, 400);
+    expect(head).not.toMatch(/Learn.*Reference.*Community.*Blog/s);
+    expect(result.markdown.length).toBeGreaterThan(200);
   });
 });
