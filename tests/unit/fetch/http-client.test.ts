@@ -281,4 +281,41 @@ describe('httpFetch', () => {
       await expect(httpFetch('http://127.0.0.1:1/')).rejects.toThrow();
     }, 10000);
   });
+
+  describe('external signal cancellation', () => {
+    afterEach(() => {
+      delete process.env.FETCH_MAX_RETRIES;
+      delete process.env.FETCH_TIMEOUT_MS;
+      resetConfig();
+    });
+
+    it('an already-aborted external signal rejects without hitting the server', async () => {
+      let hits = 0;
+      const server = await startServer((_req, res) => { hits++; res.end('ok'); });
+      const port = getPort(server);
+      const ac = new AbortController();
+      ac.abort(new DOMException('stage_timeout', 'AbortError'));
+      await expect(httpFetch(`http://127.0.0.1:${port}/`, { signal: ac.signal })).rejects.toBeTruthy();
+      expect(hits).toBe(0);
+      await closeServer(server);
+    });
+
+    it('aborting during retry backoff rejects well before the backoff elapses', async () => {
+      // Server always 503 (retryable) → httpFetch enters sleep(backoffMs ~500-1000ms).
+      // Aborting at ~50ms via real timer must wake the sleep and reject promptly.
+      process.env.FETCH_MAX_RETRIES = '3';
+      process.env.FETCH_TIMEOUT_MS = '2000';
+      resetConfig();
+
+      const server = await startServer((_req, res) => { res.statusCode = 503; res.end('busy'); });
+      const port = getPort(server);
+      const ac = new AbortController();
+      const startedAt = Date.now();
+      const p = httpFetch(`http://127.0.0.1:${port}/`, { signal: ac.signal });
+      setTimeout(() => ac.abort(new DOMException('stage_timeout', 'AbortError')), 50);
+      await expect(p).rejects.toBeTruthy();
+      expect(Date.now() - startedAt).toBeLessThan(450); // woke from sleep, did NOT wait full backoff
+      await closeServer(server);
+    }, 5000);
+  });
 });

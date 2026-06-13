@@ -15,6 +15,10 @@ export interface Config {
   playwrightNavTimeoutMs: number;
   searxngQueryTimeoutMs: number;
   searchFetchTimeoutMs: number;
+  searchFetchTimeoutBalancedMs: number;
+  searchFetchTimeoutDeepMs: number;
+  searchStageBudgetBalancedMs: number;
+  searchStageBudgetDeepMs: number;
   searchTotalTimeoutMs: number;
   validateTimeoutMs: number;
   maxBrowsers: number;
@@ -213,6 +217,10 @@ export function getConfig(): Config {
     playwrightNavTimeoutMs: envInt('PLAYWRIGHT_NAV_TIMEOUT_MS', 30000, settings, 'playwrightNavTimeoutMs'),
     searxngQueryTimeoutMs: envInt('SEARXNG_QUERY_TIMEOUT_MS', 8000, settings, 'searxngQueryTimeoutMs'),
     searchFetchTimeoutMs: envInt('SEARCH_FETCH_TIMEOUT_MS', 15000, settings, 'searchFetchTimeoutMs'),
+    searchFetchTimeoutBalancedMs: envInt('SEARCH_FETCH_TIMEOUT_BALANCED_MS', 3000, settings, 'searchFetchTimeoutBalancedMs'),
+    searchFetchTimeoutDeepMs: envInt('SEARCH_FETCH_TIMEOUT_DEEP_MS', 8000, settings, 'searchFetchTimeoutDeepMs'),
+    searchStageBudgetBalancedMs: envInt('SEARCH_STAGE_BUDGET_BALANCED_MS', 4000, settings, 'searchStageBudgetBalancedMs'),
+    searchStageBudgetDeepMs: envInt('SEARCH_STAGE_BUDGET_DEEP_MS', 10000, settings, 'searchStageBudgetDeepMs'),
     searchTotalTimeoutMs: envInt('SEARCH_TOTAL_TIMEOUT_MS', 30000, settings, 'searchTotalTimeoutMs'),
     validateTimeoutMs: envInt('VALIDATE_TIMEOUT_MS', 5000, settings, 'validateTimeoutMs'),
     maxBrowsers: envInt('MAX_BROWSERS', 3, settings, 'maxBrowsers'),

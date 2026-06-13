@@ -475,11 +475,13 @@ export class CoreSearchProvider implements SearchProvider {
       if (includeContent && ctx.router && items.length > 0) {
         const config = getConfig();
         const fetchStart = Date.now();
+        const isDeep = depth === 'deep';
         await fetchContentForResults(items, ctx.router, {
           contentMaxChars: input.content_max_chars ?? DEFAULT_CONTENT_MAX_CHARS,
           maxContentChars: input.max_content_chars,
           maxTotalChars: input.max_total_chars ?? DEFAULT_MAX_TOTAL_CHARS,
-          fetchTimeoutMs: config.searchFetchTimeoutMs,
+          fetchTimeoutMs: isDeep ? config.searchFetchTimeoutDeepMs : config.searchFetchTimeoutBalancedMs,
+          stageBudgetMs: isDeep ? config.searchStageBudgetDeepMs : config.searchStageBudgetBalancedMs,
           totalDeadline: start + config.searchTotalTimeoutMs,
           forceRefresh: input.force_refresh ?? false,
           maxFetches: input.max_fetches,

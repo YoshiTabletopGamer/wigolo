@@ -1,5 +1,6 @@
 import { getConfig } from '../config.js';
 import { createLogger } from '../logger.js';
+import { anySignal } from '../util/abort.js';
 
 export interface HttpFetchOptions {
   headers?: Record<string, string>;
@@ -8,6 +9,7 @@ export interface HttpFetchOptions {
     ifNoneMatch?: string;
     ifModifiedSince?: string;
   };
+  signal?: AbortSignal;
 }
 
 export interface HttpFetchResult {
@@ -49,8 +51,12 @@ function backoffMs(attempt: number): number {
   return 500 * Math.pow(2, attempt) + Math.random() * 500;
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => { clearTimeout(t); reject(signal.reason); }, { once: true });
+  });
 }
 
 export async function httpFetch(url: string, options: HttpFetchOptions = {}): Promise<HttpFetchResult> {
@@ -59,20 +65,25 @@ export async function httpFetch(url: string, options: HttpFetchOptions = {}): Pr
   const maxRetries = config.fetchMaxRetries;
   const timeoutMs = options.timeoutMs ?? config.fetchTimeoutMs;
   const maxRedirects = config.maxRedirects;
+  const external = options.signal;
 
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (external?.aborted) throw external.reason;
+
     if (attempt > 0) {
       const delay = backoffMs(attempt - 1);
       logger.debug('retrying after backoff', { attempt, delayMs: delay, url });
-      await sleep(delay);
+      await sleep(delay, external);
     }
 
     try {
       const result = await fetchWithRedirects(url, options, timeoutMs, maxRedirects, logger);
       return result;
     } catch (err) {
+      if (external?.aborted) throw external.reason;
+
       lastError = err;
 
       if (err instanceof HttpFetchError && !err.retryable) {
@@ -122,7 +133,11 @@ async function fetchWithRedirects(
 
     logger.debug('fetching', { url: currentUrl, attempt: redirectCount });
 
-    const signal = AbortSignal.timeout(timeoutMs);
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const combined = options.signal
+      ? anySignal([options.signal, timeout])
+      : { signal: timeout, cleanup: () => {} };
+    const signal = combined.signal;
 
     let response: Response;
     try {
@@ -148,6 +163,8 @@ async function fetchWithRedirects(
       const isConnErr = err instanceof Error && RETRYABLE_ERROR_CODES.has((err as NodeJS.ErrnoException).code ?? '');
       const retryable = isTimeout || isConnErr;
       throw Object.assign(err instanceof Error ? err : new Error(String(err)), { retryable });
+    } finally {
+      combined.cleanup();
     }
 
     if (response.status === 304) {
