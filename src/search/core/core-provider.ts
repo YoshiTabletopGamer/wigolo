@@ -229,8 +229,28 @@ export class CoreSearchProvider implements SearchProvider {
     const autoRewrites: string[] = [];
 
     if (!servedFromCache && !ultraFastMiss) {
+      // Parity attack 3: for a single-query call carrying a compound token
+      // (sqlite-vec, vec0, snake_case), add ONE quoted-phrase variant to the
+      // initial fan-out so engines that honour phrase quotes surface exact-match
+      // pages they'd otherwise drop by stripping the hyphen. The variant is
+      // dispatched CONCURRENTLY in the same Promise.all (not a serial second
+      // sweep), so it adds engine load but no extra wall-clock latency. Bounded
+      // to one extra concurrent dispatch; `queries` stays the user-supplied list
+      // (the low-recall block below still keys its single-query gate off it).
+      const rareVariant =
+        category !== 'images' && queries.length === 1
+          ? buildRareTermVariant(queries[0])
+          : null;
+      const dispatchQueries =
+        rareVariant && rareVariant.trim() !== queries[0].trim()
+          ? [...queries, rareVariant]
+          : queries;
+      if (dispatchQueries.length > queries.length) {
+        log.debug('rare-term variant firing', { original: queries[0], variant: rareVariant });
+      }
+
       const dispatches = await Promise.all(
-        queries.map((q) =>
+        dispatchQueries.map((q) =>
           runV1Search({
             query: q,
             category,
@@ -248,39 +268,14 @@ export class CoreSearchProvider implements SearchProvider {
         ),
       );
 
+      if (rareVariant && dispatchQueries.length > queries.length) {
+        autoRewrites.push(rareVariant);
+      }
+
       let fused =
         dispatches.length === 1
           ? dispatches[0].results
           : fuseRankedLists(dispatches.map((d) => d.results));
-
-      // Parity attack 3: for a single-query call carrying a compound token
-      // (sqlite-vec, vec0, snake_case), fire ONE extra quoted-phrase variant so
-      // engines that support phrase queries surface exact-match pages they'd
-      // otherwise drop by stripping the hyphen. Bounded to one extra dispatch;
-      // separate from (and additive to) the low-recall expansion below.
-      if (category !== 'images' && queries.length === 1) {
-        const variant = buildRareTermVariant(queries[0]);
-        if (variant && variant.trim() !== queries[0].trim()) {
-          log.debug('rare-term variant firing', { original: queries[0], variant });
-          const variantDispatch = await runV1Search({
-            query: variant,
-            category,
-            fromDate: input.from_date,
-            toDate: input.to_date,
-            maxResults: input.max_results,
-            language: input.language,
-            includeDomains: input.include_domains,
-            excludeDomains: input.exclude_domains,
-            includeScoreBreakdown: input.include_engine_outcomes,
-            country: input.country,
-            timeRange: input.time_range,
-            exactMatch: input.exact_match,
-          });
-          fused = fuseRankedLists([fused, variantDispatch.results]);
-          autoRewrites.push(variant);
-          dispatches.push(variantDispatch);
-        }
-      }
 
       // Low-recall expansion (S11c): only fire when single-query, result
       // count is at or below threshold, and category is not 'images'. Image

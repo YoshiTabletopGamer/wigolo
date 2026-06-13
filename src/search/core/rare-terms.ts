@@ -28,6 +28,13 @@ const PHRASE_BOOST = 0.4; // up to *1.4 at full-phrase contiguity
 const FACTOR_MIN = 0.5;
 const FACTOR_MAX = 1.6;
 
+// Hard caps so an abusive/malformed client can't drive the per-result
+// longestRun (O(phrase·doc)) or the buildRareTermVariant regex-compile loop
+// with a pathologically long query — the `query` schema has no maxLength.
+// Real queries carry a handful of rare terms; beyond these caps adds no signal.
+const MAX_COMPOUND_TOKENS = 16;
+const MAX_PHRASE_TOKENS = 32;
+
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'is', 'are', 'was', 'were', 'how', 'why', 'what', 'when',
   'where', 'who', 'do', 'does', 'did', 'for', 'of', 'to', 'in', 'on', 'with',
@@ -67,12 +74,12 @@ export function detectRareTerms(query: string): RareTerms {
     const c = classifyCompound(raw);
     if (c) compoundSet.add(c);
   }
-  const compoundTokens = [...compoundSet];
+  const compoundTokens = [...compoundSet].slice(0, MAX_COMPOUND_TOKENS);
 
   let conceptPhrase: string[] | null = null;
   if (compoundTokens.length === 0) {
     const content = contentTokens(query);
-    if (content.length >= 2) conceptPhrase = content;
+    if (content.length >= 2) conceptPhrase = content.slice(0, MAX_PHRASE_TOKENS);
   }
   return { compoundTokens, conceptPhrase };
 }

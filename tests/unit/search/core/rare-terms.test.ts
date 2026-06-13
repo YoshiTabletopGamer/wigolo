@@ -25,6 +25,22 @@ describe('detectRareTerms', () => {
     expect(r.compoundTokens).toContain('sqlite-vec');
     expect(r.conceptPhrase).toBeNull();
   });
+
+  it('returns empty for an empty or non-string query', () => {
+    expect(detectRareTerms('')).toEqual({ compoundTokens: [], conceptPhrase: null });
+    expect(detectRareTerms('   ')).toEqual({ compoundTokens: [], conceptPhrase: null });
+    // @ts-expect-error guard against non-string input from untyped callers
+    expect(detectRareTerms(null)).toEqual({ compoundTokens: [], conceptPhrase: null });
+  });
+
+  it('caps compound + phrase token counts so a pathological query cannot blow up longestRun', () => {
+    const manyCompounds = Array.from({ length: 100 }, (_, i) => `aa-bb${i}`).join(' ');
+    expect(detectRareTerms(manyCompounds).compoundTokens.length).toBeLessThanOrEqual(16);
+    // all-word tokens, no compound shape => concept phrase, clamped to <= 32
+    const phrase = detectRareTerms(Array.from({ length: 100 }, (_, i) => `term${i}word`).join(' ')).conceptPhrase;
+    expect(phrase).not.toBeNull();
+    expect(phrase!.length).toBeLessThanOrEqual(32);
+  });
 });
 
 describe('rareTermFactor', () => {
