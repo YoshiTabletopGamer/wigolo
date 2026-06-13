@@ -39,13 +39,20 @@ function selectRoot(document: Document): Element | null {
   return null;
 }
 
+const CHROME_SELECTOR = 'nav, header, footer';
+
 // body text with nav/header/footer subtrees removed — the ratio denominator.
+// Subtract each TOP-LEVEL chrome subtree once (skip chrome nested inside other
+// chrome so its text is not double-counted). No clone — measure in place.
 function chromeExcludedBodyText(body: Element): number {
-  const clone = body.cloneNode(true) as Element;
-  for (const el of Array.from(clone.querySelectorAll('nav, header, footer'))) {
-    el.parentNode?.removeChild(el);
+  let total = textLen(body);
+  for (const el of Array.from(body.querySelectorAll(CHROME_SELECTOR))) {
+    // linkedom's closest() includes self, so check ancestors via parentElement:
+    // a chrome ancestor means this subtree is already covered by an outer one.
+    if (el.parentElement?.closest(CHROME_SELECTOR)) continue;
+    total -= textLen(el);
   }
-  return textLen(clone);
+  return total;
 }
 
 // keep only the root's ancestor chain inside <body>; <head> untouched.
