@@ -152,4 +152,107 @@ describe('fetchWithPlaywright gates capture on the hydration probe', () => {
     expect(probeCalls).toBe(1); // no escalation
     expect(events).not.toContain('probe2:timeout');
   });
+
+  it('aborts promptly when the signal fires mid-escalation re-poll', async () => {
+    // First probe times out → app-shell → escalation re-poll starts. The
+    // caller's signal aborts WHILE the second (escalation) wait is pending.
+    // The tier must reject with the abort reason promptly, not swallow it into
+    // a nav-only capture.
+    const controller = new AbortController();
+    const abortReason = new DOMException('aborted', 'AbortError');
+    let probeCalls = 0;
+    fakePage.waitForFunction = vi.fn().mockImplementation(() => {
+      probeCalls += 1;
+      if (probeCalls === 1) {
+        events.push('probe1:timeout');
+        return Promise.reject(new Error('Timeout 800ms exceeded'));
+      }
+      // Escalation wait: never resolves on its own — abort must win.
+      events.push('probe2:pending');
+      queueMicrotask(() => controller.abort(abortReason));
+      return new Promise(() => {});
+    });
+    fakePage.evaluate = vi.fn().mockResolvedValue(true); // app-shell-only
+
+    const { fetchWithPlaywright } = await import('../../../src/fetch/playwright-tier.js');
+    await expect(
+      fetchWithPlaywright('https://react.dev/reference/react', { signal: controller.signal }),
+    ).rejects.toBe(abortReason);
+
+    expect(events).toContain('probe2:pending');
+    expect(events).not.toContain('content:before-probe');
+    expect(events).not.toContain('content:after-probe');
+    expect(fakePage.content).not.toHaveBeenCalled();
+  });
+});
+
+// Perf guard (attack-4): the three post-goto phases — networkidle wait, probe
+// wait, escalation re-poll — must draw from ONE shared deadline, not three
+// independent budgets. Signal-less callers (extract.ts, router stealth tier)
+// pass no timeoutMs and no signal, so WITHOUT a shared deadline worst-case
+// post-goto wall-clock would be ~5s+5s+6s = ~16s (the attack-4 blowup). We
+// assert ACTUAL post-goto elapsed wall-clock stays within the cap — and that
+// every later leg's granted timeout is clamped to the budget still remaining,
+// so a leg can never be handed more than what's left on the shared deadline.
+describe('fetchWithPlaywright bounds total post-goto wait by a single shared deadline', () => {
+  beforeEach(() => {
+    events.length = 0;
+    probeResolved = false;
+    fakePage = makePage();
+  });
+
+  afterEach(async () => {
+    vi.useRealTimers();
+    const { closeDaemonBrowser } = await import('../../../src/fetch/playwright-tier.js');
+    await closeDaemonBrowser().catch(() => undefined);
+    vi.resetModules();
+  });
+
+  it('keeps total post-goto elapsed within the cap even with no timeoutMs/signal (app-shell escalation path)', async () => {
+    vi.useFakeTimers();
+    const POST_GOTO_CAP = 6000;
+    const startNow = Date.now();
+    const waitFnGranted: number[] = [];
+    // Remaining budget (deadline - now) at the instant each leg is granted —
+    // the tier must never hand a leg more time than the shared deadline has left.
+    const budgetLeftAtGrant: number[] = [];
+
+    fakePage.waitForLoadState = vi.fn().mockImplementation((_state: string, opts: { timeout: number }) => {
+      budgetLeftAtGrant.push(POST_GOTO_CAP - (Date.now() - startNow));
+      // networkidle settles partway through the budget (like a real settle).
+      return new Promise((resolve) => setTimeout(() => resolve(undefined), 1000));
+    });
+    fakePage.waitForFunction = vi.fn().mockImplementation((_src: string, _arg: unknown, opts: { timeout: number }) => {
+      waitFnGranted.push(opts.timeout);
+      budgetLeftAtGrant.push(POST_GOTO_CAP - (Date.now() - startNow));
+      // Each probe wait consumes its full granted timeout then times out.
+      return new Promise((_resolve, reject) => {
+        setTimeout(() => reject(new Error(`Timeout ${opts.timeout}ms exceeded`)), opts.timeout);
+      });
+    });
+    fakePage.evaluate = vi.fn().mockResolvedValue(true); // app-shell-only → escalate
+
+    const { fetchWithPlaywright } = await import('../../../src/fetch/playwright-tier.js');
+    // No timeoutMs, no signal — the unbounded-caller case the perf review flagged.
+    const promise = fetchWithPlaywright('https://react.dev/reference/react');
+    await vi.runAllTimersAsync();
+    await promise;
+
+    // Actual post-goto wall-clock (simulated) must not exceed the shared cap —
+    // this is the attack-4 guard: even unbounded callers stay within budget.
+    const elapsed = Date.now() - startNow;
+    expect(elapsed).toBeLessThanOrEqual(POST_GOTO_CAP);
+
+    // The escalation leg actually fired (2 probe waits): the shared deadline
+    // bound did NOT silently disable the SPA escalation re-poll.
+    expect(waitFnGranted.length).toBe(2);
+
+    // No leg was ever granted more time than the shared deadline had left, and
+    // its granted timeout never exceeded that remaining budget.
+    waitFnGranted.forEach((granted, i) => {
+      // waitFn legs are entries 1.. in budgetLeftAtGrant (entry 0 is networkidle).
+      const budgetLeft = budgetLeftAtGrant[i + 1];
+      expect(granted).toBeLessThanOrEqual(budgetLeft + 1);
+    });
+  });
 });
