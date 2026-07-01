@@ -43,11 +43,11 @@ npx wigolo doctor
 
 ### Optional — enable answer synthesis
 
-`research`, `agent`, and `search format=answer` use an LLM to *write* the final answer. Turn them on by setting a **provider and its key together** (in your shell, or in your agent's MCP `env` block) — `WIGOLO_LLM_PROVIDER` must be set, or the key is ignored:
+`research`, `agent`, and `search format=answer` use an LLM to *write* the final answer. Turn them on by setting a **provider and its key** (in your shell, or in your agent's MCP `env` block). `WIGOLO_LLM_PROVIDER` names the LLM — set it alongside the key:
 
 ```bash
 export WIGOLO_LLM_PROVIDER=gemini
-export GOOGLE_API_KEY=<your-key>      # free from https://aistudio.google.com/apikey — the free tier is plenty
+export GEMINI_API_KEY=<your-key>      # free from https://aistudio.google.com/apikey — the free tier is plenty
 ```
 
 Any provider works — use `anthropic` + `ANTHROPIC_API_KEY`, `openai` + `OPENAI_API_KEY`, or `groq` + `GROQ_API_KEY`. To stay fully local and keyless, set `WIGOLO_LLM_PROVIDER=ollama` (or a local server URL) instead. Gemini is suggested because its free tier is more than enough for wigolo.
@@ -117,7 +117,7 @@ A clean install works out of the box. A few settings meaningfully raise output q
 # 1. Synthesis — the biggest lever. research / agent / search-answer need an LLM
 #    to write the final text. Set the provider AND its key (a key alone is ignored).
 export WIGOLO_LLM_PROVIDER=gemini                   # names the LLM; free tier is plenty (or anthropic/openai/groq)
-export GOOGLE_API_KEY=<your-key>                    # that provider's key (ANTHROPIC_API_KEY / OPENAI_API_KEY / …)
+export GEMINI_API_KEY=<your-key>                    # that provider's key (ANTHROPIC_API_KEY / OPENAI_API_KEY / …)
 #   ...or fully local & keyless:  export WIGOLO_LLM_PROVIDER=ollama   (or a local http URL)
 
 # 2. Wider retrieval funnel
@@ -254,7 +254,7 @@ For repeated interactive use, run `wigolo serve` so the browser pool, embeddings
 | `WIGOLO_LLM_MAX_CALLS_PER_REQUEST` | `1` | Hard ceiling on LLM calls per tool invocation. |
 | `WIGOLO_LLM_CACHE_TTL_DAYS` | `7` | LLM response cache TTL. |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | — | Read on every call; never persisted. |
-| `GOOGLE_API_KEY` | — | Gemini provider key (read on every call; never persisted). |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | — | Gemini provider key (either name; read on every call, never persisted). |
 | `GROQ_API_KEY` | — | Same. |
 | `WIGOLO_LLM_API_KEY` | — | Generic key for whichever provider `WIGOLO_LLM_PROVIDER` names. The provider-specific var wins; ignored during auto-detect. |
 
