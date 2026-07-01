@@ -152,7 +152,7 @@ describe('WigoloMcpClient', () => {
     it('uses default command and args', () => {
       const client = new WigoloMcpClient();
       expect(client.command).toBe('npx');
-      expect(client.args).toEqual(['@knockoutez/wigolo']);
+      expect(client.args).toEqual(['wigolo']);
     });
 
     it('accepts custom command and args', () => {
@@ -189,7 +189,7 @@ describe('WigoloMcpClient', () => {
       await client.connect();
       expect(spawnMock).toHaveBeenCalledWith(
         'npx',
-        ['@knockoutez/wigolo'],
+        ['wigolo'],
         expect.objectContaining({ stdio: ['pipe', 'pipe', 'pipe'] }),
       );
       expect(client.isConnected).toBe(true);
