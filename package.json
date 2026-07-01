@@ -61,9 +61,14 @@
     "provenance": true
   },
   "license": "AGPL-3.0-only",
+  "author": "Towhid Khan",
+  "homepage": "https://github.com/KnockOutEZ/wigolo#readme",
   "repository": {
     "type": "git",
     "url": "https://github.com/KnockOutEZ/wigolo"
+  },
+  "bugs": {
+    "url": "https://github.com/KnockOutEZ/wigolo/issues"
   },
   "mcp": {
     "transport": "stdio",
