@@ -108,27 +108,30 @@ function foldTokens(label: string): string[] {
     .filter(Boolean);
 }
 
+// Two tokens refer to the same thing when they are equal or differ only by a
+// trailing plural `s` (plan ↔ plans). Deliberately NOT substring containment:
+// that matched plan→planet, card→cardholder, tier→frontier, name→username and
+// broke the "no false positives" invariant.
+function tokensEqual(x: string, y: string): boolean {
+  if (x === y) return true;
+  if (x.length >= 3 && y === `${x}s`) return true;
+  if (y.length >= 3 && x === `${y}s`) return true;
+  return false;
+}
+
 // Do a schema field name and a structure key/header refer to the same thing?
-// Match on exact compact equality, substring containment, or full token-set
-// overlap (every token of the shorter side present in the longer). This folds
-// `plan_name` ↔ `Plan Name` ↔ `planName` while rejecting unrelated labels.
+// Full token-set overlap with plural-tolerant token equality: every token of
+// the shorter side must have a match in the longer side. This folds
+// `plan_name` ↔ `Plan Name` ↔ `planName` and `plan` ↔ `plans` while rejecting
+// near-miss substrings (planet / cardholder / frontier / username).
 function labelsMatch(fieldName: string, candidate: string): boolean {
   const a = foldTokens(fieldName);
   const b = foldTokens(candidate);
   if (a.length === 0 || b.length === 0) return false;
 
-  const compactA = a.join('');
-  const compactB = b.join('');
-  if (compactA === compactB) return true;
-  if (compactA.length >= 4 && compactB.length >= 4) {
-    if (compactA.includes(compactB) || compactB.includes(compactA)) return true;
-  }
-
-  const setA = new Set(a);
-  const setB = new Set(b);
-  const [small, big] = setA.size <= setB.size ? [setA, setB] : [setB, setA];
+  const [small, big] = a.length <= b.length ? [a, b] : [b, a];
   for (const t of small) {
-    if (!big.has(t)) return false;
+    if (!big.some((u) => tokensEqual(t, u))) return false;
   }
   return true;
 }

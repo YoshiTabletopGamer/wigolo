@@ -368,6 +368,44 @@ describe('extractWithSchemaDetailed structure fuzzy-match (keyless)', () => {
     expect(result.values).toEqual({});
   });
 
+  it('rejects near-miss substring headers (no false positives)', () => {
+    // The loose compact-substring branch matched plan→planet, card→cardholder,
+    // tier→frontier, name→username — breaking the "no false positives"
+    // invariant. Token-set overlap with plural-tolerant equality must reject
+    // these while still matching the legitimate forms.
+    const nonMatches: [string, string][] = [
+      ['plan', 'Planet'],
+      ['plan', 'Planning'],
+      ['card', 'Cardholder'],
+      ['tier', 'Frontier'],
+      ['name', 'Username'],
+    ];
+    for (const [field, header] of nonMatches) {
+      const html = `<table><thead><tr><th>${header}</th></tr></thead>` +
+        `<tbody><tr><td>VAL</td></tr></tbody></table>`;
+      const result = extractWithSchemaDetailed(html, {
+        type: 'object',
+        properties: { [field]: { type: 'string' } },
+      });
+      expect(result.values).toEqual({});
+    }
+
+    const shouldMatch: [string, string][] = [
+      ['plan', 'Plan Name'],
+      ['plan', 'Plans'],
+      ['plan', 'Plan'],
+    ];
+    for (const [field, header] of shouldMatch) {
+      const html = `<table><thead><tr><th>${header}</th></tr></thead>` +
+        `<tbody><tr><td>VAL</td></tr></tbody></table>`;
+      const result = extractWithSchemaDetailed(html, {
+        type: 'object',
+        properties: { [field]: { type: 'string' } },
+      });
+      expect(result.values[field]).toBe('VAL');
+    }
+  });
+
   it('prefers JSON-LD/microdata over structure fuzzy-match when both present', () => {
     const html = `<html><body>
       <div itemscope itemtype="https://schema.org/Product">
