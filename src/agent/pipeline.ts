@@ -94,7 +94,7 @@ export async function runAgentPipeline(
         if (schemaResult) {
           return {
             result: schemaResult,
-            sources,
+            sources: stripRawHtml(sources),
             pages_fetched: pagesFetched,
             steps,
             total_time_ms: Date.now() - start,
@@ -137,7 +137,7 @@ export async function runAgentPipeline(
 
     return {
       result,
-      sources,
+      sources: stripRawHtml(sources),
       pages_fetched: pagesFetched,
       steps,
       total_time_ms: Date.now() - start,
@@ -159,6 +159,14 @@ export async function runAgentPipeline(
       error: err instanceof Error ? err.message : String(err),
     };
   }
+}
+
+// rawHtml is internal fuel for schema extraction only — it must never reach
+// the caller. Left in place it ships hundreds of KB of raw page HTML per
+// source and, on the no-schema path, inflates enforceResponseEnvelope's
+// token count so it over-drops evidence/sources.
+function stripRawHtml(sources: AgentSource[]): AgentSource[] {
+  return sources.map(({ rawHtml: _rawHtml, ...rest }) => rest);
 }
 
 function applySchemaExtraction(
