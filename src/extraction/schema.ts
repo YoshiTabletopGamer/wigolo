@@ -1,10 +1,12 @@
 import { parseHTML } from 'linkedom';
 import { extractStructuredData } from './structured-data.js';
+import { extractStructured } from './structured.js';
 import { extractWithLLM, type LLMFallbackBudget } from './llm-fallback.js';
 import { applyEvidenceFilter, getSourceText } from './schema-truth.js';
 import type {
   FieldProvenance,
   SchemaExtractionResult,
+  StructuredData,
   StructuredDataResult,
 } from '../types.js';
 
@@ -57,10 +59,27 @@ export function extractWithSchemaDetailed(
     }
   }
 
-  const allCovered = Object.keys(schema.properties).every(
-    (k) => values[k] !== undefined,
-  );
-  if (allCovered) return { values, provenance };
+  const allCovered = () =>
+    Object.keys(schema.properties!).every((k) => values[k] !== undefined);
+  if (allCovered()) return { values, provenance };
+
+  // Structure fuzzy-match: when data lives in tables / definition lists /
+  // key-value pairs (not JSON-LD or class-named DOM), fuzzy-match remaining
+  // schema fields against those extracted structures. This is why a page
+  // whose facts sit in a <table> used to return {} — the keyless path never
+  // consulted extractStructured. Fuzzy = token overlap / substring /
+  // snake↔space↔camel folding; provenance = 'structured'.
+  const structured = extractStructured(html);
+  for (const fieldName of Object.keys(schema.properties)) {
+    if (values[fieldName] !== undefined) continue;
+    const v = matchFieldFromStructures(fieldName, structured);
+    if (v !== undefined) {
+      values[fieldName] = v;
+      provenance[fieldName] = 'structured';
+    }
+  }
+
+  if (allCovered()) return { values, provenance };
 
   // Heuristic fallback only for fields still missing
   const { document: doc } = parseHTML(html);
@@ -74,6 +93,76 @@ export function extractWithSchemaDetailed(
   }
 
   return { values, provenance };
+}
+
+// ---------- structure fuzzy-match helpers ----------
+
+// Fold a label into comparable tokens: lowercase, split on
+// snake_case / camelCase / spaces / hyphens, drop empties.
+function foldTokens(label: string): string[] {
+  return label
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/[_-]+/g, ' ')
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+// Two tokens refer to the same thing when they are equal or differ only by a
+// trailing plural `s` (plan ↔ plans). Deliberately NOT substring containment:
+// that matched plan→planet, card→cardholder, tier→frontier, name→username and
+// broke the "no false positives" invariant.
+function tokensEqual(x: string, y: string): boolean {
+  if (x === y) return true;
+  if (x.length >= 3 && y === `${x}s`) return true;
+  if (y.length >= 3 && x === `${y}s`) return true;
+  return false;
+}
+
+// Do a schema field name and a structure key/header refer to the same thing?
+// Full token-set overlap with plural-tolerant token equality: every token of
+// the shorter side must have a match in the longer side. This folds
+// `plan_name` ↔ `Plan Name` ↔ `planName` and `plan` ↔ `plans` while rejecting
+// near-miss substrings (planet / cardholder / frontier / username).
+function labelsMatch(fieldName: string, candidate: string): boolean {
+  const a = foldTokens(fieldName);
+  const b = foldTokens(candidate);
+  if (a.length === 0 || b.length === 0) return false;
+
+  const [small, big] = a.length <= b.length ? [a, b] : [b, a];
+  for (const t of small) {
+    if (!big.some((u) => tokensEqual(t, u))) return false;
+  }
+  return true;
+}
+
+// Fuzzy-match one schema field against extracted key-value pairs, definition
+// terms, and table headers (header→cell value). Returns the first confident
+// match, or undefined when nothing corresponds (no false positives).
+function matchFieldFromStructures(
+  fieldName: string,
+  structured: StructuredData,
+): string | undefined {
+  for (const kv of structured.key_value_pairs) {
+    if (labelsMatch(fieldName, kv.key)) return kv.value;
+  }
+
+  for (const def of structured.definitions) {
+    if (labelsMatch(fieldName, def.term)) return def.description;
+  }
+
+  for (const table of structured.tables) {
+    for (let i = 0; i < table.headers.length; i++) {
+      const header = table.headers[i];
+      if (!labelsMatch(fieldName, header)) continue;
+      for (const row of table.rows) {
+        const cell = row[header];
+        if (cell !== undefined && cell !== '') return cell;
+      }
+    }
+  }
+
+  return undefined;
 }
 
 export interface SchemaExtractionAsyncResult extends SchemaExtractionResult {

@@ -157,6 +157,85 @@ describe('runAgentPipeline', () => {
     }
   });
 
+  it('agent schema consumes a pricing TABLE, not just class-named DOM (r2 regression)', async () => {
+    // WHY: the agent tool used to wrap markdown as <html><body>…</body></html>
+    // and run a class-name-only schema extractor, so a page whose facts live
+    // in a <table> (no <span class=price>) returned nothing structured. The
+    // agent now carries raw HTML on each source and shares the same
+    // structure-aware schema engine as the extract tool.
+    const tableHtml =
+      '<html><body><table><thead><tr><th>Plan</th><th>Price</th></tr></thead>' +
+      '<tbody><tr><td>Pro</td><td>$29</td></tr></tbody></table></body></html>';
+    const router = {
+      fetch: vi.fn().mockResolvedValue({
+        url: 'https://example.com',
+        finalUrl: 'https://example.com',
+        html: tableHtml,
+        contentType: 'text/html',
+        statusCode: 200,
+        method: 'http' as const,
+        headers: {},
+      }),
+    } as unknown as SmartRouter;
+    const engine = createStubEngine(defaultResults);
+    const input: AgentInput = {
+      prompt: 'Extract the plan pricing',
+      schema: {
+        type: 'object',
+        properties: { plan: { type: 'string' }, price: { type: 'string' } },
+      },
+    };
+
+    const result = await runAgentPipeline(input, [engine], router);
+
+    // A structured object (not a prose string) with the table-sourced fields.
+    expect(typeof result.result).toBe('object');
+    const obj = result.result as Record<string, unknown>;
+    expect(obj.plan).toBe('Pro');
+    expect(obj.price).toBe('$29');
+    expect(result.warning).toBeUndefined();
+  });
+
+  it('never leaks rawHtml into returned sources (schema + no-schema paths)', async () => {
+    // rawHtml is internal fuel for schema extraction only. Left in the output
+    // it ships hundreds of KB of raw page HTML per source and corrupts the
+    // response-envelope token accounting. It must be stripped on BOTH paths.
+    const bigHtml =
+      '<html><body>' + '<p>filler</p>'.repeat(50) +
+      '<table><thead><tr><th>Plan</th><th>Price</th></tr></thead>' +
+      '<tbody><tr><td>Pro</td><td>$29</td></tr></tbody></table></body></html>';
+    const router = {
+      fetch: vi.fn().mockResolvedValue({
+        url: 'https://example.com',
+        finalUrl: 'https://example.com',
+        html: bigHtml,
+        contentType: 'text/html',
+        statusCode: 200,
+        method: 'http' as const,
+        headers: {},
+      }),
+    } as unknown as SmartRouter;
+    const engine = createStubEngine(defaultResults);
+
+    // schema path
+    const schemaResult = await runAgentPipeline(
+      { prompt: 'extract', schema: { type: 'object', properties: { plan: { type: 'string' } } } },
+      [engine],
+      router,
+    );
+    expect(schemaResult.sources.length).toBeGreaterThan(0);
+    for (const s of schemaResult.sources) {
+      expect((s as { rawHtml?: string }).rawHtml).toBeUndefined();
+    }
+
+    // no-schema path
+    const plainResult = await runAgentPipeline({ prompt: 'summarize' }, [engine], router);
+    expect(plainResult.sources.length).toBeGreaterThan(0);
+    for (const s of plainResult.sources) {
+      expect((s as { rawHtml?: string }).rawHtml).toBeUndefined();
+    }
+  });
+
   it('applies schema extraction when schema is provided', async () => {
     const router = {
       fetch: vi.fn().mockResolvedValue({

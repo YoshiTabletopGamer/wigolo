@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { extractMetadata, extractSelector, extractTables } from '../../../src/extraction/extract.js';
 
 describe('extractMetadata', () => {
@@ -347,5 +349,143 @@ describe('extractTables', () => {
     const result = extractTables(html);
     expect(result).toHaveLength(1);
     expect(result[0].rows).toEqual([{ Key: 'foo', Value: 'bar' }]);
+  });
+
+  // --- degenerate / nested table handling (item 9) ---
+  //
+  // WHY: run-on one-cell rows make tables useless to an agent — a whole
+  // nested-layout page collapses into one giant string per row, which is
+  // exactly why Extract lost benchmark points. Two failure shapes:
+  //   1. nested <table> inside a <td>: querySelectorAll('td') double-counts
+  //      the inner table's cells and merges them into the parent row.
+  //   2. legacy single-<td>-per-row layout: headers collapse to ['col_1']
+  //      and every row becomes a run-on blob of the whole cell text.
+
+  it('scopes row cells to direct children so a nested table does not merge into the parent row', () => {
+    // Outer layout table whose single <td> wraps a real inner data table.
+    const html = `<html><body>
+      <table>
+        <tr>
+          <td>
+            <table>
+              <thead><tr><th>City</th><th>Population</th></tr></thead>
+              <tbody>
+                <tr><td>Paris</td><td>2.1M</td></tr>
+                <tr><td>Berlin</td><td>3.6M</td></tr>
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </body></html>`;
+
+    const result = extractTables(html);
+    // The inner data table must surface with correct per-column cells.
+    const inner = result.find(
+      (t) =>
+        t.headers.join(',') === 'City,Population' &&
+        t.rows.length === 2 &&
+        t.rows[0].City === 'Paris',
+    );
+    expect(inner).toBeDefined();
+    expect(inner!.rows).toEqual([
+      { City: 'Paris', Population: '2.1M' },
+      { City: 'Berlin', Population: '3.6M' },
+    ]);
+    // The outer layout table must NOT re-emit the inner table's data by
+    // descending into it: scoping row cells to direct children means the
+    // outer <td> wraps the inner <table> but contributes no data rows itself,
+    // so the inner table appears exactly ONCE (no duplicate).
+    const innerCopies = result.filter(
+      (t) => t.headers.join(',') === 'City,Population' && t.rows.length === 2,
+    );
+    expect(innerCopies).toHaveLength(1);
+    // And never a row whose single cell concatenates the whole inner table.
+    for (const table of result) {
+      for (const row of table.rows) {
+        const values = Object.values(row);
+        expect(values.some((v) => v.includes('Paris') && v.includes('Berlin'))).toBe(false);
+      }
+    }
+  });
+
+  it('does not emit a legacy single-<td>-per-row layout table as run-on blobs', () => {
+    // Each row has exactly one <td> carrying a long paragraph — a classic
+    // layout table, not data. headers would collapse to ['col_1'].
+    const blob1 = 'This is a long promotional paragraph about our flagship product line that stretches well beyond any sane single-column cell width and reads as prose.';
+    const blob2 = 'A second equally verbose marketing paragraph continues the layout table pattern with more run-on text that clearly is not tabular data at all.';
+    const html = `<html><body>
+      <table>
+        <tr><td>${blob1}</td></tr>
+        <tr><td>${blob2}</td></tr>
+      </table>
+    </body></html>`;
+
+    const result = extractTables(html);
+    // Invariant: no emitted row is a single key whose value exceeds a run-on
+    // threshold when it came from a degenerate single-cell layout table.
+    for (const table of result) {
+      for (const row of table.rows) {
+        const keys = Object.keys(row);
+        if (keys.length === 1) {
+          expect(row[keys[0]].length).toBeLessThanOrEqual(120);
+        }
+      }
+    }
+    // If it was salvaged as a list, rows are keyed by `item`, not `col_1`.
+    for (const table of result) {
+      expect(table.headers).not.toEqual(['col_1']);
+    }
+  });
+
+  it('regression: well-formed tables.html fixture parses byte-identical to prior behavior', () => {
+    // The degenerate classifier must never touch clean, structured tables.
+    const html = readFileSync(
+      join(import.meta.dirname, '../../fixtures/extraction/tables.html'),
+      'utf-8',
+    );
+    const result = extractTables(html);
+    expect(result).toEqual([
+      {
+        caption: undefined,
+        headers: ['Quarter', 'Revenue', 'Growth', 'Profit Margin'],
+        rows: [
+          { Quarter: 'Q1 2025', Revenue: '$1.2M', Growth: '12%', 'Profit Margin': '34%' },
+          { Quarter: 'Q2 2025', Revenue: '$1.5M', Growth: '25%', 'Profit Margin': '36%' },
+          { Quarter: 'Q3 2025', Revenue: '$1.8M', Growth: '20%', 'Profit Margin': '38%' },
+          { Quarter: 'Q4 2025', Revenue: '$2.1M', Growth: '17%', 'Profit Margin': '40%' },
+        ],
+      },
+      {
+        caption: undefined,
+        headers: ['Product', 'Units Sold', 'Revenue', 'Customer Satisfaction'],
+        rows: [
+          { Product: 'Widget Pro', 'Units Sold': '15,000', Revenue: '$3.0M', 'Customer Satisfaction': '4.5/5' },
+          { Product: 'Widget Lite', 'Units Sold': '42,000', Revenue: '$2.1M', 'Customer Satisfaction': '4.2/5' },
+          { Product: 'Widget Enterprise', 'Units Sold': '500', Revenue: '$1.5M', 'Customer Satisfaction': '4.8/5' },
+        ],
+      },
+    ]);
+  });
+
+  it('keeps a well-formed two-column key/value layout table (amazon-style spec table)', () => {
+    // A 2-col td/td spec table (no thead) is legitimate structured data —
+    // the degenerate classifier keys on single-cell rows, not on 2+ cols.
+    const html = `<html><body>
+      <table class="a-normal">
+        <tr><td>Brand</td><td>Acme</td></tr>
+        <tr><td>Color</td><td>Black</td></tr>
+        <tr><td>Model</td><td>NC-700</td></tr>
+      </table>
+    </body></html>`;
+
+    const result = extractTables(html);
+    expect(result).toHaveLength(1);
+    expect(result[0].headers).toEqual(['col_1', 'col_2']);
+    expect(result[0].rows).toEqual([
+      { col_1: 'Brand', col_2: 'Acme' },
+      { col_1: 'Color', col_2: 'Black' },
+      { col_1: 'Model', col_2: 'NC-700' },
+    ]);
   });
 });
