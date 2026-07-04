@@ -72,6 +72,50 @@ describe('core-provider brand/lexical-collision dual-dispatch', () => {
     expect(runV1Search).toHaveBeenCalledTimes(1);
   });
 
+  // Over-fire guard: library/tool lexicon terms are warning-only. The
+  // "<term> React hook" rewrite is nonsense for them (docker/vite/prisma are
+  // not React hooks), so auto-dispatching it would RRF-merge React-hooks docs
+  // into a clean tool query — actively harmful. They must NOT dual-dispatch.
+  it('does NOT auto-dispatch a "React hook" rewrite for a library/tool term (docker)', async () => {
+    runV1Search.mockResolvedValue(dispatch('https://a.com'));
+    const provider = new CoreSearchProvider();
+    const out = await provider.search(
+      { query: 'docker', search_depth: 'fast', include_content: false },
+      { router: undefined } as never,
+    );
+    expect(runV1Search).toHaveBeenCalledTimes(1);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    // Single query only — no "docker React hook" variant.
+    expect(out.data.queries_executed).toEqual(['docker']);
+  });
+
+  it('does NOT auto-dispatch a "React hook" rewrite for a build-tool term (vite)', async () => {
+    runV1Search.mockResolvedValue(dispatch('https://a.com'));
+    const provider = new CoreSearchProvider();
+    const out = await provider.search(
+      { query: 'vite', search_depth: 'fast', include_content: false },
+      { router: undefined } as never,
+    );
+    expect(runV1Search).toHaveBeenCalledTimes(1);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.data.queries_executed).toEqual(['vite']);
+  });
+
+  it('does NOT auto-dispatch a "React hook" rewrite for an ORM term (prisma)', async () => {
+    runV1Search.mockResolvedValue(dispatch('https://a.com'));
+    const provider = new CoreSearchProvider();
+    const out = await provider.search(
+      { query: 'prisma', search_depth: 'fast', include_content: false },
+      { router: undefined } as never,
+    );
+    expect(runV1Search).toHaveBeenCalledTimes(1);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.data.queries_executed).toEqual(['prisma']);
+  });
+
   it('does NOT double-dispatch when the entity-collision variant already fires', async () => {
     // "Phoenix framework deployment" already dual-dispatches via the entity
     // variant. The new collision variant must not stack a THIRD dispatch.
