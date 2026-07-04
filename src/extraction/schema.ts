@@ -185,11 +185,75 @@ function matchFieldFromStructures(
 // (or all, for a 1-property item schema) of the item properties fuzzy-match a
 // header — an unrelated grid (weather / SERP) whose headers match nothing
 // yields undefined, never an array of junk rows.
+//
+// Among the grids that qualify, SELECTION is semantic, not first-wins: a
+// pricing page carries both plan tiers (name+price+features, a handful of rows)
+// and an add-ons / resources section (name+price, many rows). First-wins let
+// the add-on dump win purely by DOM order. We score every qualifying grid by
+// shape completeness (more matched props + array props actually filled) with a
+// SOFT plausibility prior (plan lists are typically 2-6 rows) and return the
+// best — never truncating or dropping the losing grid's rows, only preferring
+// the fuller-shaped, plausibly-sized one.
 const MIN_ITEM_MATCHES = 2;
 
 // Header prefix the div-grid detector emits for a card's list items — the
 // natural source for an array-typed item property (e.g. key_features).
 const FEATURE_HEADER_RE = /^feature[_-]?\d+$/i;
+
+// A schema property named "name"/"title"/"label" refers to the same thing as a
+// tier grid's identity column even when that column is headed "Plan", "Tier",
+// "Product", or "Package". labelsMatch alone rejects these (different tokens),
+// so a `name` property would fail to bind on a table whose header is "Plan" and
+// the whole tier grid would drop below the match gate. The synonym is scoped to
+// identity columns only — it never widens price/feature matching.
+const NAME_PROP_TOKENS = new Set(['name', 'title', 'label']);
+const NAME_HEADER_TOKENS = new Set([
+  'name',
+  'title',
+  'label',
+  'plan',
+  'tier',
+  'product',
+  'package',
+]);
+
+// Does an item property bind to a header, allowing the name<->plan/tier synonym
+// for single-token identity columns? Plural-tolerant token equality still gates
+// multi-token labels via labelsMatch.
+function propMatchesHeader(prop: string, header: string): boolean {
+  if (labelsMatch(prop, header)) return true;
+  const p = foldTokens(prop);
+  const h = foldTokens(header);
+  if (p.length !== 1 || h.length !== 1) return false;
+  return NAME_PROP_TOKENS.has(p[0]) && NAME_HEADER_TOKENS.has(h[0]);
+}
+
+// Typical plan/tier list size. Used ONLY as a soft ranking preference — it never
+// filters rows or excludes a grid, so a legitimate 8-tier page keeps all 8 rows.
+const PLAUSIBLE_MIN = 2;
+const PLAUSIBLE_MAX = 6;
+
+interface GridCandidate {
+  rows: Array<Record<string, string | string[]>>;
+  score: number;
+}
+
+function scoreCandidate(
+  scalarMatches: number,
+  arrayFilled: boolean,
+  rowCount: number,
+): number {
+  // Shape completeness dominates: each bound scalar property is worth far more
+  // than the size prior, so a name+price+features tier grid outranks a
+  // name+price add-on dump regardless of DOM order or row count.
+  let score = scalarMatches * 10;
+  if (arrayFilled) score += 10;
+  // Soft plausibility prior: a small nudge toward plan-sized grids, bounded so
+  // it can only break ties between equally-shaped grids — never override a real
+  // shape-completeness difference and never drop the larger grid's rows.
+  if (rowCount >= PLAUSIBLE_MIN && rowCount <= PLAUSIBLE_MAX) score += 3;
+  return score;
+}
 
 function matchArrayOfObjectsFromStructures(
   fieldSchema: JsonSchema,
@@ -202,18 +266,21 @@ function matchArrayOfObjectsFromStructures(
   const itemProps = Object.entries(items.properties);
   if (itemProps.length === 0) return undefined;
 
+  let best: GridCandidate | undefined;
   for (const table of structured.tables) {
     if (table.headers.length === 0 || table.rows.length === 0) continue;
 
-    // Resolve each scalar item property to the first header it fuzzy-matches.
-    // Array-typed item properties (e.g. key_features) collect the card's
-    // feature_* columns instead, so a div-grid's per-item list surfaces as an
-    // array rather than being dropped.
+    // Resolve each scalar item property to the first header it binds to
+    // (name<->plan/tier synonym included). Array-typed item properties (e.g.
+    // key_features) collect the card's feature_* columns instead, so a
+    // div-grid's per-item list surfaces as an array rather than being dropped.
     const scalarProps = new Map<string, string>();
     const arrayProps: string[] = [];
     const claimedHeaders = new Set<string>();
     for (const [prop, propSchema] of itemProps) {
-      const header = table.headers.find((h) => labelsMatch(prop, h));
+      const header = table.headers.find(
+        (h) => !claimedHeaders.has(h) && propMatchesHeader(prop, h),
+      );
       if (header) {
         scalarProps.set(prop, header);
         claimedHeaders.add(header);
@@ -232,26 +299,31 @@ function matchArrayOfObjectsFromStructures(
     if (scalarProps.size < required) continue;
 
     const rows: Array<Record<string, string | string[]>> = [];
+    let arrayFilled = false;
     for (const row of table.rows) {
       const obj: Record<string, string | string[]> = {};
       for (const [prop, header] of scalarProps) {
         const cell = row[header];
         if (cell !== undefined && cell !== '') obj[prop] = cell;
       }
-      if (featureHeaders.length > 0) {
+      if (featureHeaders.length > 0 && arrayProps.length > 0) {
         const features = featureHeaders
           .map((h) => row[h])
           .filter((v): v is string => v !== undefined && v !== '');
         if (features.length > 0) {
           for (const prop of arrayProps) obj[prop] = features;
+          arrayFilled = true;
         }
       }
       if (Object.keys(obj).length > 0) rows.push(obj);
     }
-    if (rows.length > 0) return rows;
+    if (rows.length === 0) continue;
+
+    const score = scoreCandidate(scalarProps.size, arrayFilled, rows.length);
+    if (!best || score > best.score) best = { rows, score };
   }
 
-  return undefined;
+  return best?.rows;
 }
 
 export interface SchemaExtractionAsyncResult extends SchemaExtractionResult {

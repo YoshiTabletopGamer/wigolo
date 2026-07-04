@@ -608,3 +608,198 @@ describe('extractWithSchemaDetailed nested array-of-objects (pricing tiers)', ()
     expect(result.values.price).toBe('$29');
   });
 });
+
+// WHY: round-2 gave a TYPED tiers[] array, but it selected the WRONG rows. On a
+// real pricing page (plan tiers + an add-ons/resources section) the matcher
+// returned the FIRST grid clearing a 2-property gate — so a 36-item add-on dump
+// (name+price, no features) won over the 2-6 plan tiers purely by DOM order, and
+// key_features stayed empty. Selection must be SEMANTIC: prefer the sibling set
+// with the fullest shape (name+price+features) and a plausible tier count, bind
+// names from tier-synonym headers, and fill array props from the feature source.
+// The prior is a SOFT preference — it must never truncate or drop a legit list.
+const tiersFeatureSchema = {
+  type: 'object',
+  properties: {
+    tiers: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          price: { type: 'string' },
+          key_features: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+  },
+} as const;
+
+describe('extractWithSchemaDetailed semantic tier selection (plan tiers vs add-ons)', () => {
+  // A pricing page with an add-ons grid (name+price, many rows, NO features)
+  // rendered BEFORE the plan-tier grid (name+price+features, 2-6 rows). Real
+  // data shape from a live SaaS pricing page (Postmark: plan tiers + a
+  // "Dedicated IPs" add-ons section). Add-ons first exercises the order bug.
+  const addonsBeforeTiers = `<html><body>
+    <section aria-label="Dedicated IPs"><div class="addons">
+      <div class="addon"><h3>Dedicated IPs</h3><span class="price">Starts at $50/month per IP</span></div>
+      <div class="addon"><h3>Custom activity retention</h3><span class="price">Starts at $5/month</span></div>
+      <div class="addon"><h3>DMARC monitoring</h3><span class="price">Starts at $14/month per domain</span></div>
+      <div class="addon"><h3>SMS alerts</h3><span class="price">Starts at $9/month</span></div>
+      <div class="addon"><h3>Extra webhooks</h3><span class="price">Starts at $7/month</span></div>
+      <div class="addon"><h3>Priority queue</h3><span class="price">Starts at $3/month</span></div>
+    </div></section>
+    <section aria-label="Plans"><div class="pricing">
+      <div class="tier"><h3>Free</h3><span class="price">$0.00/mo</span><ul><li>Testing your integration</li><li>Low volume</li></ul></div>
+      <div class="tier"><h3>Basic</h3><span class="price">$15.00/mo</span><ul><li>45-day retention</li><li>5 sending domains</li></ul></div>
+      <div class="tier"><h3>Pro</h3><span class="price">$16.50/mo</span><ul><li>365-day retention</li><li>10 sending domains</li></ul></div>
+      <div class="tier"><h3>Platform</h3><span class="price">$18.00/mo</span><ul><li>Unlimited domains</li><li>SSO</li></ul></div>
+    </div></section>
+  </body></html>`;
+
+  it('selects the plan tiers (full name+price+features shape) over an add-ons dump listed first', () => {
+    const result = extractWithSchemaDetailed(addonsBeforeTiers, tiersFeatureSchema);
+    const tiers = result.values.tiers as Array<Record<string, unknown>>;
+    expect(Array.isArray(tiers)).toBe(true);
+    // The 4 plan tiers, NOT the 6 add-ons.
+    expect(tiers).toHaveLength(4);
+    const names = tiers.map((t) => t.name);
+    expect(names).toEqual(['Free', 'Basic', 'Pro', 'Platform']);
+    expect(names).not.toContain('Dedicated IPs');
+    expect(result.provenance.tiers).toBe('structured');
+  });
+
+  it('populates key_features on the selected tiers from the card feature list', () => {
+    const result = extractWithSchemaDetailed(addonsBeforeTiers, tiersFeatureSchema);
+    const tiers = result.values.tiers as Array<Record<string, unknown>>;
+    expect(tiers[0].key_features).toEqual(['Testing your integration', 'Low volume']);
+    expect(tiers[3].key_features).toEqual(['Unlimited domains', 'SSO']);
+  });
+
+  it('binds name+price on the selected tiers when the name is a card heading (not co-located with price)', () => {
+    const result = extractWithSchemaDetailed(addonsBeforeTiers, tiersFeatureSchema);
+    const tiers = result.values.tiers as Array<Record<string, unknown>>;
+    expect(tiers[1]).toMatchObject({ name: 'Basic', price: '$15.00/mo' });
+    expect(tiers[2]).toMatchObject({ name: 'Pro', price: '$16.50/mo' });
+  });
+
+  it('binds a `name` schema property from a tier-synonym header (Plan/Tier/Product) in a <table>', () => {
+    // Name binding: the tier name lives under a header labelled "Plan", but the
+    // schema calls the property `name`. Without a name<->plan synonym the tier
+    // table only matches `price` (1 prop) and drops below the gate entirely.
+    const html = `<html><body><table>
+      <thead><tr><th>Plan</th><th>Price</th></tr></thead>
+      <tbody>
+        <tr><td>Starter</td><td>$10</td></tr>
+        <tr><td>Growth</td><td>$20</td></tr>
+        <tr><td>Scale</td><td>$40</td></tr>
+      </tbody>
+    </table></body></html>`;
+    const schema = {
+      type: 'object',
+      properties: {
+        tiers: { type: 'array', items: { type: 'object', properties: {
+          name: { type: 'string' }, price: { type: 'string' } } } },
+      },
+    };
+    const result = extractWithSchemaDetailed(html, schema);
+    const tiers = result.values.tiers as Array<Record<string, string>>;
+    expect(tiers).toHaveLength(3);
+    expect(tiers[0]).toEqual({ name: 'Starter', price: '$10' });
+    expect(tiers[2]).toEqual({ name: 'Scale', price: '$40' });
+  });
+
+  // NEGATIVE (a): a legit >6-item plan list is NOT truncated or dropped by the
+  // 2-6 plausibility prior. The prior is a soft tie-breaker, never a filter.
+  it('does NOT truncate a legitimate 8-tier plan list (soft prior, not a cap)', () => {
+    const rows = Array.from({ length: 8 }, (_, i) =>
+      `<tr><td>Tier ${i + 1}</td><td>$${(i + 1) * 10}</td><td>Feature set ${i + 1}</td></tr>`,
+    ).join('');
+    const html = `<html><body><table>
+      <thead><tr><th>Name</th><th>Price</th><th>Features</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></body></html>`;
+    const result = extractWithSchemaDetailed(html, tiersFeatureSchema);
+    const tiers = result.values.tiers as Array<Record<string, unknown>>;
+    expect(tiers).toHaveLength(8);
+    expect(tiers[7].name).toBe('Tier 8');
+    expect(tiers[7].price).toBe('$80');
+  });
+
+  // NEGATIVE (b): a single genuine tier is not dropped. A 1-row plan table is
+  // the whole answer, not noise; the prior must not require >=2 rows.
+  it('does NOT drop a single genuine tier', () => {
+    const html = `<html><body><table>
+      <thead><tr><th>Name</th><th>Price</th></tr></thead>
+      <tbody><tr><td>Enterprise</td><td>Contact sales</td></tr></tbody>
+    </table></body></html>`;
+    const result = extractWithSchemaDetailed(html, tiersFeatureSchema);
+    const tiers = result.values.tiers as Array<Record<string, unknown>>;
+    expect(tiers).toHaveLength(1);
+    expect(tiers[0]).toMatchObject({ name: 'Enterprise', price: 'Contact sales' });
+  });
+
+  // NEGATIVE (c): a page with ONLY add-ons (no plan tiers) must NOT fabricate a
+  // richer tier shape. The add-ons are the honest answer — return them as-is,
+  // do not invent key_features that were never on the page.
+  it('does NOT fabricate feature-rich tiers when the page has only add-ons', () => {
+    const html = `<html><body>
+      <section aria-label="Add-ons"><div class="addons">
+        <div class="addon"><h3>Dedicated IPs</h3><span class="price">$50/mo</span></div>
+        <div class="addon"><h3>Extra storage</h3><span class="price">$5/mo</span></div>
+        <div class="addon"><h3>SMS alerts</h3><span class="price">$9/mo</span></div>
+        <div class="addon"><h3>DMARC monitoring</h3><span class="price">$14/mo</span></div>
+      </div></section>
+    </body></html>`;
+    const result = extractWithSchemaDetailed(html, tiersFeatureSchema);
+    const tiers = result.values.tiers as Array<Record<string, unknown>>;
+    // The add-ons ARE selected (they are the only priced grid), name+price bound,
+    // but no key_features are invented from thin air.
+    expect(tiers).toHaveLength(4);
+    expect(tiers[0]).toEqual({ name: 'Dedicated IPs', price: '$50/mo' });
+    for (const t of tiers) expect(t.key_features).toBeUndefined();
+  });
+
+  // NEGATIVE (d): shape-completeness preference must not drop a valid tier grid
+  // that legitimately lacks a feature list. name+price with no features is still
+  // a real tier set and must be returned, not discarded for missing key_features.
+  it('does NOT drop a valid name+price tier grid that has no feature list', () => {
+    const html = `<html><body><table>
+      <thead><tr><th>Plan</th><th>Price</th></tr></thead>
+      <tbody>
+        <tr><td>Hobby</td><td>$0</td></tr>
+        <tr><td>Pro</td><td>$29</td></tr>
+        <tr><td>Team</td><td>$99</td></tr>
+      </tbody>
+    </table></body></html>`;
+    const result = extractWithSchemaDetailed(html, tiersFeatureSchema);
+    const tiers = result.values.tiers as Array<Record<string, unknown>>;
+    expect(tiers).toHaveLength(3);
+    expect(tiers.map((t) => t.name)).toEqual(['Hobby', 'Pro', 'Team']);
+    for (const t of tiers) expect(t.key_features).toBeUndefined();
+  });
+
+  // Over-fire probe: an unrelated multi-grid page (a SERP-ish list + a spec grid)
+  // whose columns match NO tier property must still yield no tiers[] — the
+  // ranking change must not lower the no-false-positive bar.
+  it('does not manufacture tiers[] from unrelated grids even with ranking (no false positives)', () => {
+    const html = `<html><body>
+      <table>
+        <thead><tr><th>City</th><th>Temperature</th></tr></thead>
+        <tbody><tr><td>Oslo</td><td>2C</td></tr><tr><td>Cairo</td><td>30C</td></tr><tr><td>Lima</td><td>18C</td></tr></tbody>
+      </table>
+      <table>
+        <thead><tr><th>Result</th><th>Rank</th></tr></thead>
+        <tbody><tr><td>Page A</td><td>1</td></tr><tr><td>Page B</td><td>2</td></tr><tr><td>Page C</td><td>3</td></tr></tbody>
+      </table>
+    </body></html>`;
+    const schema = {
+      type: 'object',
+      properties: {
+        tiers: { type: 'array', items: { type: 'object', properties: {
+          plan_name: { type: 'string' }, monthly_price: { type: 'string' } } } },
+      },
+    };
+    const result = extractWithSchemaDetailed(html, schema);
+    expect(result.values.tiers).toBeUndefined();
+  });
+});
