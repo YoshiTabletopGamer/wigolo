@@ -31,6 +31,7 @@ import {
 import { computeFreshnessSignal } from './freshness.js';
 import { buildQueryUnderstanding } from './query-understanding.js';
 import { detectRareTerms } from './rare-terms.js';
+import { extractErrorTokens, resultMatchesErrorToken } from './error-intent.js';
 import { buildEngineWarnings } from './engine-warnings.js';
 import { faviconUrlFor } from './favicon.js';
 import { runSynthesis } from '../answer-synthesis.js';
@@ -51,6 +52,13 @@ const DEFAULT_CONTENT_MAX_CHARS = 30000;
 const DEFAULT_MAX_TOTAL_CHARS = 50000;
 
 const RRF_K = 60;
+
+// Per-result damp for an error-intent result that mentions none of the query's
+// atomic error tokens. Strong enough to sink broadcaster/dictionary junk below
+// on-target fix pages and, in combination with the score floor, trim it out;
+// a multiplier (not a drop) so the set is never emptied when no engine indexed
+// the token.
+const ERROR_TOKEN_MISS_DAMP = 0.15;
 
 function hostnameOf(url: string): string {
   try {
@@ -267,8 +275,29 @@ export class CoreSearchProvider implements SearchProvider {
       // sweep), so it adds engine load but no extra wall-clock latency. Bounded
       // to one extra concurrent dispatch; `queries` stays the user-supplied list
       // (the low-recall block below still keys its single-query gate off it).
-      const rareVariant =
+      // Error-intent bare-token variant: when a single query carries an atomic
+      // error token (ERR_MODULE_NOT_FOUND, error[E0499], ...), engines that
+      // return ZERO for the long natural-language form often return on-target
+      // fix pages for the token ALONE. Dispatch the bare token(s) concurrently
+      // so those results enter the fused pool. Joined with a space when a query
+      // carries several tokens; skipped when the token(s) already equal the
+      // whole query (no new signal to gain).
+      const errorTokens =
         category !== 'images' && queries.length === 1
+          ? extractErrorTokens(queries[0])
+          : [];
+      const errorTokenVariant =
+        errorTokens.length > 0 ? errorTokens.join(' ') : null;
+
+      // The rare-term quoted variant, the entity-qualified variant and the
+      // error-token variant each add ONE concurrent dispatch. When error-intent
+      // fires, the bare-token variant is the recall lever that works (engines
+      // ignore the phrase quote on error strings, and the entity rewrite anchors
+      // the wrong head — both verified); the other two add only wasted engine
+      // load. Prefer the error-token variant and suppress the rare-term + entity
+      // variants in that case so an error query stays at exactly two dispatches.
+      const rareVariant =
+        category !== 'images' && queries.length === 1 && errorTokens.length === 0
           ? buildRareTermVariant(queries[0])
           : null;
       // Brand-collision dual-dispatch: when a single-query call is an
@@ -279,9 +308,12 @@ export class CoreSearchProvider implements SearchProvider {
       // capitalized-head query with no collision ("React hooks useEffect
       // cleanup", "Amazon rainforest deforestation") pays no extra dispatch.
       // Multi-query callers author their own variants — single-query path only.
+      // Suppressed when error-intent fires: the bare-token variant is the right
+      // recall lever there and the entity rewrite would anchor the wrong head.
       const entityVariant =
         category !== 'images' &&
         queries.length === 1 &&
+        errorTokens.length === 0 &&
         detectEntityCollision(queries[0]) !== null
           ? entityQualifiedRewrite(queries[0])
           : null;
@@ -296,6 +328,17 @@ export class CoreSearchProvider implements SearchProvider {
       ) {
         dispatchQueries.push(entityVariant);
         log.debug('entity-collision variant firing', { original: queries[0], variant: entityVariant });
+      }
+      // Error-token bare-token variant: recovers the on-target results engines
+      // return for the atomic token alone but miss on the long natural-language
+      // form. Concurrent, one extra dispatch; captured in queriesExecuted below.
+      if (
+        errorTokenVariant &&
+        errorTokenVariant.trim().toLowerCase() !== queries[0].trim().toLowerCase() &&
+        !dispatchQueries.some((q) => q.trim().toLowerCase() === errorTokenVariant.trim().toLowerCase())
+      ) {
+        dispatchQueries.push(errorTokenVariant);
+        log.debug('error-token variant firing', { original: queries[0], variant: errorTokenVariant });
       }
       if (rareVariant && dispatchQueries.includes(rareVariant)) {
         log.debug('rare-term variant firing', { original: queries[0], variant: rareVariant });
@@ -333,6 +376,12 @@ export class CoreSearchProvider implements SearchProvider {
 
       if (rareVariant && dispatchQueries.includes(rareVariant)) {
         autoRewrites.push(rareVariant);
+      }
+      if (
+        errorTokenVariant &&
+        dispatchQueries.some((q) => q.trim().toLowerCase() === errorTokenVariant.trim().toLowerCase())
+      ) {
+        autoRewrites.push(errorTokenVariant);
       }
       if (entityVariant && dispatchQueries.includes(entityVariant)) {
         autoRewrites.push(entityVariant);
@@ -526,6 +575,38 @@ export class CoreSearchProvider implements SearchProvider {
           .map((r) => ({ r, demoted: r.relevance_score * recencyDemotion(r.published_date, now) }))
           .sort((a, b) => b.demoted - a.demoted)
           .map(({ r, demoted }) => ({ ...r, relevance_score: demoted }));
+      }
+
+      // Atomic error-token survival damp: for an error-intent query, a result
+      // that mentions none of the query's atomic error tokens
+      // (ERR_MODULE_NOT_FOUND, error[E0499], ...) is off-target junk — the
+      // broadcaster (err.ee), dictionary ("ERR" definition) and unrelated-brand
+      // pages that general engines substring-match against the shortest error
+      // fragment. Applied at the final-ordering seam so it is the last word
+      // before the floor, PER-RESULT on a hit/miss predicate (a query merely
+      // containing an uppercase word is never tagged as an error, so a normal
+      // query is untouched). Damps rather than drops so a token that no engine
+      // indexed still leaves the pool non-empty; the score floor then trims the
+      // damped junk below the floor. Single-query only, mirroring the bare-token
+      // recall variant: an array caller supplies their own phrasings (which may
+      // mix error and non-error sub-queries), so damping the merged pool on one
+      // sub-query's token would suppress on-topic results from its siblings.
+      const errorIntentTokens =
+        queries.length === 1 ? extractErrorTokens(queries[0]) : [];
+      if (errorIntentTokens.length > 0) {
+        processed = [...processed]
+          .map((r) => {
+            const onTarget = resultMatchesErrorToken(
+              { title: r.title, url: r.url, snippet: r.snippet },
+              errorIntentTokens,
+            );
+            return {
+              r,
+              damped: onTarget ? r.relevance_score : r.relevance_score * ERROR_TOKEN_MISS_DAMP,
+            };
+          })
+          .sort((a, b) => b.damped - a.damped)
+          .map(({ r, damped }) => ({ ...r, relevance_score: damped }));
       }
 
       // Relevance-score floor: the LAST trim before the slice, so
