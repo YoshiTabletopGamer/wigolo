@@ -9,6 +9,23 @@ export const RERANK_RELEVANCE_THRESHOLD = 0;
 export const RERANK_BLEND_COMPOSITE = 0.5;
 export const RERANK_BLEND_RERANK = 0.5;
 
+// Build the cross-encoder input for one result. Title + snippet ALONE let a
+// short off-topic snippet game the reranker into a high logit (the junk-
+// saturation bug); appending the host gives the model the domain as an extra
+// relevance signal (a dictionary/glossary host reads differently from a docs
+// host). Shared by the fold path and the legacy path so both encode identically.
+export function rerankInputText(title: string, snippet: string | undefined, url: string): string {
+  let host = '';
+  try {
+    host = new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    host = '';
+  }
+  const parts = [title ?? '', snippet ?? ''];
+  if (host) parts.push(host);
+  return parts.join('\n').trim();
+}
+
 /** Injectable: given a query + candidates, return id -> raw logit. */
 export type RerankFn = (
   query: string,
@@ -60,7 +77,7 @@ export async function foldRerankIntoOrdering(
 
   const candidates = windowResults.map((res, i) => ({
     id: String(i),
-    text: `${res.title}\n${res.snippet ?? ''}`.trim(),
+    text: rerankInputText(res.title, res.snippet, res.url),
   }));
 
   const rerankFn = opts.rerank ?? defaultRerankFn();

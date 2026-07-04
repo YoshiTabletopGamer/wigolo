@@ -35,6 +35,31 @@ function fakeRerank(logitsByUrl: Record<string, number>) {
   };
 }
 
+describe('foldRerankIntoOrdering — rerank input includes URL/domain context', () => {
+  it('passes the result domain into the candidate text so a short snippet cannot game the reranker', async () => {
+    const seen: string[] = [];
+    const capture = async (_q: string, cands: { id: string; text: string }[]) => {
+      const m = new Map<string, number>();
+      for (const c of cands) {
+        seen.push(c.text);
+        m.set(c.id, 1);
+      }
+      return m;
+    };
+    const results = [
+      r('https://developer.mozilla.org/en-US/docs/Web/JavaScript', 0.9, 'Array.prototype.map', 'maps values'),
+      r('https://spam.example/x', 0.1, 'buy now', 'cheap'),
+    ];
+    await foldRerankIntoOrdering(results, { queries: ['array map'], rerank: capture });
+    // Each candidate's text carries its host so the domain is a rerank signal,
+    // not just title+snippet.
+    expect(seen.some((t) => t.includes('developer.mozilla.org'))).toBe(true);
+    expect(seen.some((t) => t.includes('spam.example'))).toBe(true);
+    // Title + snippet are still present.
+    expect(seen.some((t) => t.includes('Array.prototype.map') && t.includes('maps values'))).toBe(true);
+  });
+});
+
 describe('foldRerankIntoOrdering', () => {
   it('a negative-logit result cannot outrank a positive-logit result even with max composite', async () => {
     const results = [r('A', 1.0), r('B', 0.01)];
