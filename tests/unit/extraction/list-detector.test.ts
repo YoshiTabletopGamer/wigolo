@@ -101,3 +101,89 @@ describe('detectListTables — generic repeated-sibling list', () => {
     expect(fromDoc[0].rows).toHaveLength(3);
   });
 });
+
+// In-<main> chrome that a nav/footer/header landmark guard does NOT catch. These
+// are ordinary page furniture rendered inside the content area, so the detector
+// must reject them on record-quality signals (fragment anchors, non-distinct or
+// non-substantive titles, pagination numbers), not on landmark alone. A live
+// probe found the detector emitting spurious rows for all six.
+describe('list detector MUST-NOT-FIRE on in-<main> chrome', () => {
+  it('table-of-contents (fragment-anchor links)', () => {
+    const html = `<html><body><main><div class="toc"><ol>
+      <li><a href="#intro">Introduction</a></li>
+      <li><a href="#setup">Setup</a></li>
+      <li><a href="#usage">Usage</a></li>
+      <li><a href="#faq">FAQ</a></li></ol></div></main></body></html>`;
+    expect(detectListTables(html)).toHaveLength(0);
+  });
+
+  it('related-articles list with non-distinct repeated titles', () => {
+    const html = `<html><body><main><div class="related"><ul>
+      <li><a href="/a">Read more</a></li>
+      <li><a href="/b">Read more</a></li>
+      <li><a href="/c">Read more</a></li></ul></div></main></body></html>`;
+    expect(detectListTables(html)).toHaveLength(0);
+  });
+
+  it('breadcrumb trail (short single-word crumbs)', () => {
+    const html = `<html><body><main><ol class="breadcrumb">
+      <li><a href="/">Home</a></li>
+      <li><a href="/docs">Docs</a></li>
+      <li><a href="/docs/api">API</a></li></ol></main></body></html>`;
+    expect(detectListTables(html)).toHaveLength(0);
+  });
+
+  it('pagination (bare number / Next-Prev titles)', () => {
+    const html = `<html><body><main><ul class="pagination">
+      <li><a href="?page=1">1</a></li>
+      <li><a href="?page=2">2</a></li>
+      <li><a href="?page=3">3</a></li>
+      <li><a href="?page=next">Next</a></li></ul></main></body></html>`;
+    expect(detectListTables(html)).toHaveLength(0);
+  });
+
+  it('tag cloud (single-word tag labels)', () => {
+    const html = `<html><body><main><ul class="tags">
+      <li><a href="/tag/js">js</a></li>
+      <li><a href="/tag/go">go</a></li>
+      <li><a href="/tag/rust">rust</a></li>
+      <li><a href="/tag/py">py</a></li></ul></main></body></html>`;
+    expect(detectListTables(html)).toHaveLength(0);
+  });
+
+  it('comment thread (title would bind to author name)', () => {
+    const html = `<html><body><main><ul class="comments">
+      <li><a href="/u/jane" class="author">jane</a> <span class="ts">2 hours ago</span><p>Great post!</p></li>
+      <li><a href="/u/bob" class="author">bob</a> <span class="ts">3 hours ago</span><p>Agreed.</p></li>
+      <li><a href="/u/amy" class="author">amy</a> <span class="ts">5 hours ago</span><p>Thanks.</p></li></ul></main></body></html>`;
+    expect(detectListTables(html)).toHaveLength(0);
+  });
+});
+
+describe('list detector recall: legit listings in non-nav containers', () => {
+  it('FIRES on a leaderboard inside <aside> (aside is not always chrome)', () => {
+    // The blanket <aside> exclusion dropped a real listing. An <aside> can hold
+    // a genuine leaderboard/feed widget; it must fire when the records are
+    // real (distinct multi-word titles + numeric metrics).
+    const html = `<html><body><aside><ol class="leaderboard">
+      <li><a href="/team/alpha">Alpha Squad</a> <span>340 points</span></li>
+      <li><a href="/team/bravo">Bravo Unit</a> <span>295 points</span></li>
+      <li><a href="/team/charlie">Charlie Group</a> <span>250 points</span></li></ol></aside></body></html>`;
+    const tables = detectListTables(html);
+    expect(tables).toHaveLength(1);
+    expect(tables[0].rows).toHaveLength(3);
+    expect(tables[0].rows[0].href).toBe('/team/alpha');
+    const nums = Object.values(tables[0].rows[0]).filter((v) => /^\d+$/.test(v));
+    expect(nums).toContain('340');
+  });
+
+  it('still FIRES on a real content feed in <main> (distinct titles + metrics)', () => {
+    const html = `<html><body><main><ul class="feed">
+      <li><a href="/2026/07/story-one">A deep dive into columnar storage engines</a> <span>184 points</span></li>
+      <li><a href="/2026/07/story-two">Understanding lock-free ring buffers</a> <span>92 points</span></li>
+      <li><a href="/2026/07/story-three">Compiling to WebAssembly by hand</a> <span>211 points</span></li></ul></main></body></html>`;
+    const tables = detectListTables(html);
+    expect(tables).toHaveLength(1);
+    expect(tables[0].rows).toHaveLength(3);
+  });
+});

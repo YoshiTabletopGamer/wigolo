@@ -19,10 +19,11 @@ function tag(el: Element): string {
 }
 
 // Landmark ancestors whose lists are page chrome (site nav, footer link
-// columns, header menus, sidebars) — never data listings. A linked nav menu
-// passes the anchor signal but is not a feed; the same guard the card detector
-// uses keeps it out.
-const CHROME_LANDMARKS = new Set(['nav', 'footer', 'header', 'aside']);
+// columns, header menus) — never data listings. A linked nav menu passes the
+// anchor signal but is not a feed; the same guard the card detector uses keeps
+// it out. NOTE: <aside> is deliberately NOT here — an aside can hold a genuine
+// leaderboard/feed widget, so aside lists are gated on record quality instead.
+const CHROME_LANDMARKS = new Set(['nav', 'footer', 'header']);
 
 function inChromeLandmark(el: Element): boolean {
   let cur: Element | null = el.parentElement;
@@ -32,6 +33,49 @@ function inChromeLandmark(el: Element): boolean {
     cur = cur.parentElement;
   }
   return false;
+}
+
+// A timestamp / relative-time cell ("2 hours ago", "3 days ago"). Comment
+// threads carry these; they are NOT the count/point metric that marks a real
+// data listing, so they must not qualify a record on their own.
+const TIMESTAMP_RE =
+  /\b\d+\s*(?:second|sec|minute|min|hour|hr|day|week|month|year)s?\s+ago\b|\b(?:yesterday|today)\b|\d{4}-\d{2}-\d{2}/i;
+
+// Pagination / nav control labels that a listing title must never be — bare
+// ordinals, "Next"/"Prev", "More", "Home". A real record has a descriptive
+// title, not a page control.
+const NAV_LABEL_RE =
+  /^(?:\d+|next|prev|previous|first|last|more|older|newer|home|back|»|«|←|→|\.\.\.)$/i;
+
+// An href points at a content record when it is a real path/URL — not an
+// in-page fragment (#toc anchor), an empty/hash href, or a javascript: handler.
+function isContentHref(href: string): boolean {
+  const h = href.trim();
+  if (!h || h === '#') return false;
+  if (h.startsWith('#')) return false;
+  if (/^javascript:/i.test(h)) return false;
+  return true;
+}
+
+// A title reads as a real record heading when it is not a bare nav/pagination
+// control and is descriptive — either multiple words or a reasonably long
+// single token. Single short words (tag chips, breadcrumb crumbs, author
+// handles) do not qualify on their own.
+function isSubstantiveTitle(title: string): boolean {
+  const t = title.trim();
+  if (!t || NAV_LABEL_RE.test(t)) return false;
+  const words = t.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return true;
+  return t.length >= 12;
+}
+
+// A metric cell that is a genuine count/point (has a number) and is NOT a
+// timestamp — the "340 points" of a leaderboard, not the "2 hours ago" of a
+// comment.
+function isContentMetric(text: string): boolean {
+  if (!text || text.length > 40) return false;
+  if (TIMESTAMP_RE.test(text)) return false;
+  return NUMERIC_RE.test(text);
 }
 
 function textOf(el: Element | null): string {
@@ -54,17 +98,35 @@ function childShape(li: Element): string {
     .join(',');
 }
 
-// An item qualifies as a listing record when it carries a genuine data signal:
-// a link (the record's target) OR a numeric metric cell. A bare "Home / About"
-// nav label has neither, so a nav/prose list never becomes a table.
+// The record's title text: its content-path anchor's text, else the item's own
+// direct text (metrics stripped). Chrome anchors (fragment/js hrefs) do not
+// contribute a title, so a TOC of #anchor links has no record title.
+function recordTitle(li: Element): string {
+  for (const a of li.querySelectorAll('a[href]')) {
+    const href = a.getAttribute('href') ?? '';
+    if (!isContentHref(href)) continue;
+    const t = textOf(a);
+    if (t) return t;
+  }
+  return '';
+}
+
+// An item qualifies as a listing record only with genuine data-listing shape,
+// not the mere presence of a link (which every nav menu, TOC, breadcrumb, tag
+// cloud, and comment byline also has). It needs EITHER:
+//   - a content-path anchor whose text is a substantive title (a feed of
+//     headlines), OR
+//   - a non-timestamp numeric metric — a real count/point (leaderboard, ranked
+//     list). A short name is fine here because the metric carries the data;
+//     comment bylines carry only a timestamp, which isContentMetric rejects, so
+//     "jane · 2 hours ago" does NOT qualify.
 function hasRecordSignal(li: Element): boolean {
-  const anchor = li.querySelector('a[href]');
-  if (anchor && textOf(anchor).length > 0) return true;
-  // A short leaf node whose text is a bare metric count.
+  const title = recordTitle(li);
+  if (title.length > 0 && isSubstantiveTitle(title)) return true;
+
   for (const node of li.querySelectorAll('span, div, strong, em, b, small, time')) {
     if (node.children.length > 1) continue;
-    const t = textOf(node);
-    if (t.length > 0 && t.length <= 40 && NUMERIC_RE.test(t)) return true;
+    if (isContentMetric(textOf(node))) return true;
   }
   return false;
 }
@@ -85,8 +147,7 @@ function metricCells(li: Element, primaryAnchor: Element | null): string[] {
     if (node.children.length > 1) continue;
     if (primaryAnchor && (node === primaryAnchor || primaryAnchor.contains(node))) continue;
     const t = textOf(node);
-    if (!t || t.length > 40) continue;
-    if (!NUMERIC_RE.test(t)) continue;
+    if (!isContentMetric(t)) continue;
     if (seen.has(t)) continue;
     seen.add(t);
     out.push(t);
@@ -101,7 +162,16 @@ function metricCells(li: Element, primaryAnchor: Element | null): string[] {
 function itemToRow(li: Element): Record<string, string> {
   const row: Record<string, string> = {};
 
-  const anchor = li.querySelector('a[href]');
+  // Prefer the content-path anchor (the record's target) over an incidental
+  // fragment/js link, so title/href bind to the story link, not a "#top" jump.
+  let anchor: Element | null = null;
+  for (const a of li.querySelectorAll('a[href]')) {
+    if (isContentHref(a.getAttribute('href') ?? '')) {
+      anchor = a;
+      break;
+    }
+  }
+  if (!anchor) anchor = li.querySelector('a[href]');
   if (anchor) {
     const title = textOf(anchor);
     if (title) row.title = truncate(title);
@@ -150,6 +220,15 @@ function qualifies(list: Element): Element[] | null {
   }
   const dominant = Math.max(...shapeCounts.values());
   if (dominant < MIN_ITEMS) return null;
+
+  // Title distinctness: a real listing's records have distinct headings. A
+  // "Read more" / "Learn more" call-to-action list repeats one title across
+  // every item — that is a widget row of buttons, not a data listing.
+  const titles = withSignal.map(recordTitle).filter((t) => t.length > 0);
+  if (titles.length >= MIN_ITEMS) {
+    const distinct = new Set(titles.map((t) => t.toLowerCase()));
+    if (distinct.size < 2) return null;
+  }
 
   return withSignal;
 }
