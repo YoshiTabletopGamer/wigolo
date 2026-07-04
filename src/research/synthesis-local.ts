@@ -14,6 +14,13 @@ export interface LocalSynthesisOptions {
   timeoutMs?: number;
   maxTokens?: number;
   modelOverride?: string;
+  /**
+   * Opt-in local-model tier (from resolveLocalModelTier). When present, the
+   * keystore gate is bypassed and runLlmText is routed at this endpoint/model —
+   * enabling synthesis when only WIGOLO_LOCAL_LLM is on (no cloud key, no
+   * explicit WIGOLO_LLM_PROVIDER).
+   */
+  tier?: { endpoint: string; model: string };
 }
 
 export interface LocalSynthesisSource {
@@ -32,7 +39,10 @@ export async function synthesizeLocal(
   sources: LocalSynthesisSource[],
   opts: LocalSynthesisOptions = {},
 ): Promise<LocalSynthesisResult> {
-  if (!(await isLlmConfiguredWithKeyStore())) {
+  // A local-model tier is self-configuring: it carries its own endpoint/model,
+  // so it bypasses the keystore gate (that gate only knows about cloud keys and
+  // an explicit WIGOLO_LLM_PROVIDER). Without a tier, require a configured LLM.
+  if (!opts.tier && !(await isLlmConfiguredWithKeyStore())) {
     throw new Error('LLM not configured. Set WIGOLO_LLM_PROVIDER or a provider API key.');
   }
 
@@ -53,17 +63,38 @@ export async function synthesizeLocal(
     `Sources:\n${sourceBlocks.join('\n\n')}`;
 
   try {
-    const result = await runLlmText({
-      prompt,
-      maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
-      modelOverride: opts.modelOverride,
-      timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
-    });
+    const result = await runViaTierOrConfigured(prompt, opts);
     log.info('local synthesis ok', { provider: result.provider, model: result.model, latencyMs: result.latencyMs });
     return { text: result.text, citations: extractCitations(result.text) };
   } catch (err) {
     log.error('local synthesis request failed', { error: err instanceof Error ? err.message : String(err) });
     throw err;
+  }
+}
+
+// runLlmText resolves its backend from process.env.WIGOLO_LLM_PROVIDER (via
+// resolveCustomBackend). When a local-model tier is supplied it may be the ONLY
+// signal that a model is reachable — no WIGOLO_LLM_PROVIDER set — so point that
+// env at the tier's OpenAI-compatible endpoint for the scope of the call and
+// restore it after (success OR failure), so a caller's env is never mutated.
+async function runViaTierOrConfigured(prompt: string, opts: LocalSynthesisOptions) {
+  const call = () =>
+    runLlmText({
+      prompt,
+      maxTokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
+      modelOverride: opts.tier?.model ?? opts.modelOverride,
+      timeoutMs: opts.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    });
+
+  if (!opts.tier) return call();
+
+  const prevProvider = process.env.WIGOLO_LLM_PROVIDER;
+  process.env.WIGOLO_LLM_PROVIDER = opts.tier.endpoint;
+  try {
+    return await call();
+  } finally {
+    if (prevProvider === undefined) delete process.env.WIGOLO_LLM_PROVIDER;
+    else process.env.WIGOLO_LLM_PROVIDER = prevProvider;
   }
 }
 

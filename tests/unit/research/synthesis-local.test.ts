@@ -192,6 +192,84 @@ describe('synthesizeLocal', () => {
 });
 
 /**
+ * The C0 opt-in local-model tier lets synthesis run when only WIGOLO_LOCAL_LLM
+ * is on — no cloud key, no explicit WIGOLO_LLM_PROVIDER. Passing `tier` must
+ * bypass the keystore gate and route runLlmText at the tier's endpoint/model.
+ */
+describe('synthesizeLocal with a local-model tier', () => {
+  const ORIGINAL_PROVIDER_LOCAL = process.env['WIGOLO_LLM_PROVIDER'];
+  const ORIGINAL_MODEL_LOCAL = process.env['WIGOLO_LLM_MODEL'];
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    delete process.env['WIGOLO_LLM_PROVIDER'];
+    delete process.env['WIGOLO_LLM_MODEL'];
+  });
+
+  afterEach(() => {
+    if (ORIGINAL_PROVIDER_LOCAL === undefined) delete process.env['WIGOLO_LLM_PROVIDER'];
+    else process.env['WIGOLO_LLM_PROVIDER'] = ORIGINAL_PROVIDER_LOCAL;
+    if (ORIGINAL_MODEL_LOCAL === undefined) delete process.env['WIGOLO_LLM_MODEL'];
+    else process.env['WIGOLO_LLM_MODEL'] = ORIGINAL_MODEL_LOCAL;
+  });
+
+  it('runs synthesis via the tier endpoint even when no provider/key is configured', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: 'Tier answer [1].' } }] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const result = await synthesizeLocal(
+      'What is AI?',
+      [{ url: 'https://a.com', title: 'A', markdown: 'AI rocks' }],
+      { tier: { endpoint: 'http://localhost:9999', model: 'qwen2.5:7b-instruct' } },
+    );
+
+    expect(result.text).toBe('Tier answer [1].');
+    expect(result.citations).toEqual([0]);
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(url).toBe('http://localhost:9999/v1/chat/completions');
+    const body = JSON.parse(String((init as RequestInit).body));
+    expect(body.model).toBe('qwen2.5:7b-instruct');
+  });
+
+  it('restores the caller WIGOLO_LLM_PROVIDER env after the tier call', async () => {
+    process.env['WIGOLO_LLM_PROVIDER'] = 'gemini';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({ choices: [{ message: { content: 'ok [1].' } }] }),
+        { status: 200 },
+      ),
+    );
+
+    await synthesizeLocal(
+      'q',
+      [{ url: 'u', title: 't', markdown: 'm' }],
+      { tier: { endpoint: 'http://localhost:9999', model: 'm1' } },
+    );
+
+    expect(process.env['WIGOLO_LLM_PROVIDER']).toBe('gemini');
+  });
+
+  it('restores env even when the tier call throws', async () => {
+    process.env['WIGOLO_LLM_PROVIDER'] = 'gemini';
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('boom', { status: 500 }));
+
+    await expect(
+      synthesizeLocal(
+        'q',
+        [{ url: 'u', title: 't', markdown: 'm' }],
+        { tier: { endpoint: 'http://localhost:9999', model: 'm1' } },
+      ),
+    ).rejects.toThrow(/500/);
+
+    expect(process.env['WIGOLO_LLM_PROVIDER']).toBe('gemini');
+  });
+});
+
+/**
  * synthesizeLocal's configured-gate must be keystore-aware.
  *
  * Zero-env scenario: no provider/key env vars, provider chosen in config.json,
