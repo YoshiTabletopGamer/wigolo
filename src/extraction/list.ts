@@ -18,6 +18,22 @@ function tag(el: Element): string {
   return el.tagName.toLowerCase();
 }
 
+// Landmark ancestors whose lists are page chrome (site nav, footer link
+// columns, header menus, sidebars) — never data listings. A linked nav menu
+// passes the anchor signal but is not a feed; the same guard the card detector
+// uses keeps it out.
+const CHROME_LANDMARKS = new Set(['nav', 'footer', 'header', 'aside']);
+
+function inChromeLandmark(el: Element): boolean {
+  let cur: Element | null = el.parentElement;
+  while (cur) {
+    if (CHROME_LANDMARKS.has(tag(cur))) return true;
+    if ((cur.getAttribute('role') ?? '').toLowerCase() === 'navigation') return true;
+    cur = cur.parentElement;
+  }
+  return false;
+}
+
 function textOf(el: Element | null): string {
   if (!el) return '';
   return (el.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -157,6 +173,7 @@ export function detectListTablesFromDoc(doc: Document): TableData[] {
 
   for (const list of doc.querySelectorAll('ol, ul')) {
     if (seen.has(list)) continue;
+    if (inChromeLandmark(list)) continue;
     const items = qualifies(list);
     if (!items) continue;
 

@@ -77,6 +77,19 @@ describe('detectListTables — generic repeated-sibling list', () => {
     expect(detectListTables(html)).toHaveLength(0);
   });
 
+  it('does NOT fire on a LINKED nav menu inside a <nav> landmark (chrome guard)', () => {
+    // A sidebar/nav menu is a list of linked items and would otherwise pass the
+    // anchor signal, but it is page chrome, not a data listing. The nav/footer/
+    // header landmark guard rejects it — the same guard the card detector uses.
+    const html = `<html><body><nav aria-label="docs"><ul>
+      <li><a href="/a">Getting started</a></li>
+      <li><a href="/b">Configuration</a></li>
+      <li><a href="/c">API reference</a></li>
+      <li><a href="/d">Guides</a></li>
+    </ul></nav></body></html>`;
+    expect(detectListTables(html)).toHaveLength(0);
+  });
+
   it('detectListTablesFromDoc shares the doc-based entry point', () => {
     const html = `<html><body><ol>
       <li><a href="/1">One</a> <span>5 votes</span></li>
