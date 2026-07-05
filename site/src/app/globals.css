@@ -1,67 +1,6 @@
-/* ============ Fonts (Warp's real webfonts) ============ */
-@font-face {
-  font-family: "theFuture";
-  src: url("/fonts/theFuture-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "theFuture";
-  src: url("/fonts/theFuture-Medium.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Matter";
-  src: url("/fonts/Matter-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Matter";
-  src: url("/fonts/Matter-Medium.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Hack";
-  src: url("/fonts/Hack-Regular.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Hack";
-  src: url("/fonts/Hack-Bold.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Azeret Mono";
-  src: url("/fonts/azeret-1.woff2") format("woff2");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Azeret Mono";
-  src: url("/fonts/azeret-2.woff2") format("woff2");
-  font-weight: 500;
-  font-style: normal;
-  font-display: swap;
-}
-@font-face {
-  font-family: "Azeret Mono";
-  src: url("/fonts/azeret-3.woff2") format("woff2");
-  font-weight: 700;
-  font-style: normal;
-  font-display: swap;
-}
+/* Fonts are self-hosted at build time via next/font (open licenses:
+   Bricolage Grotesque · Instrument Sans · Azeret Mono). The --font-*
+   variables are injected on <html> by app/layout.tsx. */
 
 /* ============ Design tokens ============ */
 :root {
@@ -84,9 +23,7 @@
   --black: #000000;
   --white: #ffffff;
 
-  --font-display: "theFuture", system-ui, -apple-system, sans-serif;
-  --font-body: "Matter", system-ui, -apple-system, sans-serif;
-  --font-mono: "Azeret Mono", "Hack", ui-monospace, "SFMono-Regular", monospace;
+  /* --font-display / --font-body / --font-mono come from next/font in layout.tsx */
 
   --nav-h: 76px;
   --maxw: 1408px;

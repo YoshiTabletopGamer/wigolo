@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { asset } from "@/lib/site";
 import styles from "./Nav.module.css";
 
 type MenuItem = { title: string; desc?: string; href: string; mono?: boolean };
@@ -74,7 +75,7 @@ export default function Nav() {
     <header className={`${styles.nav}${scrolled ? " " + styles.scrolled : ""}`}>
       <div className={styles.inner}>
         <a href="/" className={styles.brand} aria-label="wigolo home">
-          <img src="/wigolo/wigolo-icon.png" alt="" width={28} height={28} />
+          <img src={asset("/wigolo/wigolo-icon.png")} alt="" width={28} height={28} />
           <span className={styles.wordmark}>wigolo</span>
         </a>
 
@@ -110,6 +111,9 @@ export default function Nav() {
           ))}
           <a href="#quickstart" className={styles.menuItem}>
             Pricing
+          </a>
+          <a href="#feedback" className={styles.menuItem}>
+            Feedback
           </a>
         </nav>
 

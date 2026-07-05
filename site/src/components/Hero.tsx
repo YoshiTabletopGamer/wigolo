@@ -1,11 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { asset } from "@/lib/site";
 import styles from "./Hero.module.css";
 
 function CopyField() {
   const [copied, setCopied] = useState(false);
-  const cmd = "npx wigolo init";
+  const cmd = "npx wigolo init --non-interactive --agents=claude-code";
   return (
     <button
       className={styles.copy}
@@ -31,6 +32,7 @@ export default function Hero() {
     <section className={styles.hero}>
       <div className={styles.inner}>
         <div className={styles.top}>
+          <span className={styles.beta}>public beta · free · open source</span>
           <h1 className={styles.title}>
             The web, wired
             <br />
@@ -80,7 +82,7 @@ function HeroMockup() {
         </div>
         <video
           className={styles.heroVideo}
-          poster="/wigolo/wigolo-demo-poster.png"
+          poster={asset("/wigolo/wigolo-demo-poster.png")}
           autoPlay
           muted
           loop
@@ -88,8 +90,8 @@ function HeroMockup() {
           preload="metadata"
           aria-label="Claude Code answering a live web question through wigolo, with no API keys"
         >
-          <source src="/wigolo/wigolo-demo.webm" type="video/webm" />
-          <source src="/wigolo/wigolo-demo.mp4" type="video/mp4" />
+          <source src={asset("/wigolo/wigolo-demo.webm")} type="video/webm" />
+          <source src={asset("/wigolo/wigolo-demo.mp4")} type="video/mp4" />
         </video>
       </div>
     </div>

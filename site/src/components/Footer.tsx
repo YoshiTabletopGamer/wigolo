@@ -1,3 +1,4 @@
+import { asset, FEEDBACK_LINKS } from "@/lib/site";
 import styles from "./Footer.module.css";
 
 const COLS: { title: string; links: { label: string; href?: string; ext?: boolean }[] }[] = [
@@ -25,7 +26,8 @@ const COLS: { title: string; links: { label: string; href?: string; ext?: boolea
     links: [
       { label: "GitHub", href: "https://github.com/KnockOutEZ/wigolo", ext: true },
       { label: "npm", href: "https://www.npmjs.com/package/wigolo", ext: true },
-      { label: "Issues", href: "https://github.com/KnockOutEZ/wigolo/issues", ext: true },
+      { label: "Report a bug", href: "https://github.com/KnockOutEZ/wigolo/issues/new?template=bug_report.yml", ext: true },
+      { label: "Feedback", href: "#feedback" },
       { label: "@KnockOutEZ", href: "https://github.com/KnockOutEZ", ext: true },
     ],
   },
@@ -83,7 +85,7 @@ export default function Footer() {
 
         <div className={styles.bottom}>
           <a href="/" className={styles.brand} aria-label="wigolo home">
-            <img src="/wigolo/wigolo-icon.png" alt="" width={26} height={26} />
+            <img src={asset("/wigolo/wigolo-icon.png")} alt="" width={26} height={26} />
             <span>wigolo</span>
           </a>
           <div className={styles.bottomRight}>
@@ -91,7 +93,7 @@ export default function Footer() {
               <span className={styles.dot} /> All systems local
             </span>
             <span className={styles.copy}>
-              AGPL-3.0 · built by @KnockOutEZ
+              public beta · AGPL-3.0 · built by @KnockOutEZ
             </span>
           </div>
         </div>

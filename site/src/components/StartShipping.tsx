@@ -1,3 +1,4 @@
+import { asset } from "@/lib/site";
 import styles from "./StartShipping.module.css";
 
 export default function StartShipping() {
@@ -6,7 +7,7 @@ export default function StartShipping() {
       <div className={`container ${styles.grid}`}>
         <div className={styles.media}>
           <img
-            src="/promo/ask-twice.svg"
+            src={asset("/promo/ask-twice.svg")}
             alt="Ask twice, pay never: first query hits the live web in 3.6 seconds, the second answers from local cache in milliseconds, the third still answers offline"
           />
         </div>

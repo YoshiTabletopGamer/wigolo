@@ -9,12 +9,9 @@ export default function AnnouncementBar() {
   return (
     <div className={styles.bar}>
       <p className={styles.text}>
-        New: keyless local web for your agent — search, fetch, crawl &amp; research over MCP{" "}
-        <a
-          href="https://github.com/KnockOutEZ/wigolo"
-          className={styles.link}
-        >
-          Star on GitHub
+        wigolo is in public beta — everything works, and it&apos;s improving fast. Hit a rough edge?{" "}
+        <a href="#feedback" className={styles.link}>
+          Tell us
         </a>
       </p>
       <button

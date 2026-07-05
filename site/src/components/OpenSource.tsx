@@ -1,3 +1,4 @@
+import { asset } from "@/lib/site";
 import styles from "./OpenSource.module.css";
 
 export default function OpenSource() {
@@ -5,14 +6,14 @@ export default function OpenSource() {
     <section className={styles.section}>
       <video
         className={styles.video}
-        poster="/wigolo/wigolo-vs-poster.png"
+        poster={asset("/wigolo/wigolo-vs-poster.png")}
         autoPlay
         muted
         loop
         playsInline
       >
-        <source src="/wigolo/wigolo-vs.webm" type="video/webm" />
-        <source src="/wigolo/wigolo-vs.mp4" type="video/mp4" />
+        <source src={asset("/wigolo/wigolo-vs.webm")} type="video/webm" />
+        <source src={asset("/wigolo/wigolo-vs.mp4")} type="video/mp4" />
       </video>
       <div className={styles.overlay} />
       <div className={`container ${styles.inner}`}>

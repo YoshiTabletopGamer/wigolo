@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import styles from "./WhyWarp.module.css";
+import styles from "./Tools.module.css";
 
 type Feature = {
   id: string;
@@ -165,7 +165,7 @@ const FEATURES: Feature[] = [
   },
 ];
 
-export default function WhyWarp() {
+export default function Tools() {
   const [active, setActive] = useState(0);
   const blockRefs = useRef<(HTMLDivElement | null)[]>([]);
 

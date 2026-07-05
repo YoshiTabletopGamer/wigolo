@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import styles from "./GetWarp.module.css";
+import styles from "./Quickstart.module.css";
 
 function Cmd({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -29,8 +29,8 @@ const STEPS = [
   {
     n: "1",
     title: "Install & wire your agent",
-    note: "Pick one or more: claude-code · cursor · codex · gemini-cli · vscode · windsurf · zed · antigravity",
-    cmd: "npx wigolo init",
+    note: "Swap in yours (comma-separated): claude-code · cursor · codex · gemini-cli · vscode · windsurf · zed · antigravity",
+    cmd: "npx wigolo init --non-interactive --agents=claude-code",
     foot: "That's the whole setup — search, fetch, crawl, extract & cache need no API key.",
   },
   {
@@ -49,7 +49,7 @@ const STEPS = [
   },
 ];
 
-export default function GetWarp() {
+export default function Quickstart() {
   return (
     <section className={styles.section} id="quickstart">
       <div className="container">

@@ -1,4 +1,5 @@
 import Reveal from "./Reveal";
+import { asset } from "@/lib/site";
 import styles from "./Parity.module.css";
 
 type Cell = boolean | string;
@@ -99,7 +100,7 @@ export default function Parity() {
           </p>
           <img
             className={styles.meter}
-            src="/promo/meter.svg"
+            src={asset("/promo/meter.svg")}
             alt="The meter: a metered cloud API's cost climbs with every query while wigolo stays flat at zero dollars — illustrative pricing"
             loading="lazy"
           />
