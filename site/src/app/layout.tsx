@@ -60,14 +60,16 @@ export const metadata: Metadata = {
     title: TITLE,
     description:
       "Local-first web intelligence over MCP. No keys, no cloud, no metered bill. Public beta.",
-    images: [{ url: asset("/wigolo/wigolo-social.png"), width: 1200, height: 630 }],
+    // Plain public path: metadataBase already carries the base path —
+    // asset() here would double-prefix it.
+    images: [{ url: "/wigolo/wigolo-social.png", width: 1200, height: 630 }],
   },
   twitter: {
     card: "summary_large_image",
     title: TITLE,
     description:
       "Local-first web intelligence over MCP. No keys, no cloud, no metered bill. Public beta.",
-    images: [asset("/wigolo/wigolo-social.png")],
+    images: ["/wigolo/wigolo-social.png"],
   },
 };
 
