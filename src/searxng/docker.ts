@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import { getConfig } from '../config.js';
 import { createLogger } from '../logger.js';
 
@@ -27,7 +27,7 @@ export function resolveContainerCli(): string | null {
   if (_resolvedContainerCli !== undefined) return _resolvedContainerCli;
   for (const cli of CONTAINER_CLI_CANDIDATES) {
     try {
-      execSync(`${cli} --version`, { stdio: 'pipe' });
+      execSync(`${cli} --version`, { stdio: 'pipe', timeout: 5_000 });
       return (_resolvedContainerCli = cli);
     } catch {
       // try next candidate
@@ -45,8 +45,9 @@ export function isContainerRunning(name: string): boolean {
   const cli = resolveContainerCli();
   if (!cli) return false;
   try {
-    const result = execSync(
-      `${cli} inspect --format '{{.State.Running}}' -- ${shellEscape(name)}`,
+    const result = execFileSync(
+      cli,
+      ['inspect', '--format', '{{.State.Running}}', '--', name],
       { stdio: 'pipe', encoding: 'utf-8' },
     ).trim();
     return result === 'true';
@@ -59,16 +60,12 @@ export function stopContainer(name: string): void {
   const cli = resolveContainerCli();
   if (!cli) return;
   try {
-    const escaped = shellEscape(name);
-    execSync(`${cli} stop -- ${escaped} && ${cli} rm -- ${escaped}`, { stdio: 'pipe' });
+    execFileSync(cli, ['stop', '--', name], { stdio: 'pipe' });
+    execFileSync(cli, ['rm', '--', name], { stdio: 'pipe' });
     log.info('stopped SearXNG container', { cli });
   } catch {
     log.debug('container was not running');
   }
-}
-
-function shellEscape(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
 }
 
 export class DockerSearxng {

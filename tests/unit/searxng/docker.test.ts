@@ -3,10 +3,11 @@ import { resetConfig } from '../../../src/config.js';
 
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
+  execFileSync: vi.fn(),
   spawn: vi.fn(),
 }));
 
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import {
   DockerSearxng,
   isContainerRunning,
@@ -69,38 +70,39 @@ describe('SearXNG Docker', () => {
 
   describe('isContainerRunning', () => {
     it('returns true when container is running (docker)', () => {
-      vi.mocked(execSync).mockImplementation((cmd) => {
-        if (String(cmd) === 'docker --version') return 'Docker version 24.0.0' as any;
-        return 'true\n' as any;
-      });
+      vi.mocked(execSync).mockReturnValue('Docker version 24.0.0' as any);
+      vi.mocked(execFileSync).mockReturnValue('true\n' as any);
       expect(isContainerRunning('wigolo-searxng')).toBe(true);
-      expect(execSync).toHaveBeenCalledWith(expect.stringMatching(/^docker inspect/), expect.anything());
+      expect(execFileSync).toHaveBeenCalledWith(
+        'docker',
+        ['inspect', '--format', '{{.State.Running}}', '--', 'wigolo-searxng'],
+        expect.anything(),
+      );
     });
 
     it('returns true when container is running via podman fallback', () => {
       vi.mocked(execSync).mockImplementation((cmd) => {
-        const s = String(cmd);
-        if (s.startsWith('docker')) throw new Error('docker: command not found');
-        if (s === 'podman --version') return 'podman version 4.9.0' as any;
-        return 'true\n' as any;
+        if (String(cmd).startsWith('docker')) throw new Error('docker: command not found');
+        return 'podman version 4.9.0' as any;
       });
+      vi.mocked(execFileSync).mockReturnValue('true\n' as any);
       expect(isContainerRunning('wigolo-searxng')).toBe(true);
-      expect(execSync).toHaveBeenCalledWith(expect.stringMatching(/^podman inspect/), expect.anything());
+      expect(execFileSync).toHaveBeenCalledWith(
+        'podman',
+        ['inspect', '--format', '{{.State.Running}}', '--', 'wigolo-searxng'],
+        expect.anything(),
+      );
     });
 
     it('returns false when container is not running', () => {
-      vi.mocked(execSync).mockImplementation((cmd) => {
-        if (String(cmd) === 'docker --version') return 'Docker version 24.0.0' as any;
-        return '\n' as any;
-      });
+      vi.mocked(execSync).mockReturnValue('Docker version 24.0.0' as any);
+      vi.mocked(execFileSync).mockReturnValue('\n' as any);
       expect(isContainerRunning('wigolo-searxng')).toBe(false);
     });
 
     it('returns false when the docker command fails', () => {
-      vi.mocked(execSync).mockImplementation((cmd) => {
-        if (String(cmd) === 'docker --version') return 'Docker version 24.0.0' as any;
-        throw new Error();
-      });
+      vi.mocked(execSync).mockReturnValue('Docker version 24.0.0' as any);
+      vi.mocked(execFileSync).mockImplementation(() => { throw new Error(); });
       expect(isContainerRunning('wigolo-searxng')).toBe(false);
     });
 
@@ -108,37 +110,44 @@ describe('SearXNG Docker', () => {
       vi.mocked(execSync).mockImplementation(() => { throw new Error('not found'); });
       expect(isContainerRunning('wigolo-searxng')).toBe(false);
       // no inspect attempt should have been made — resolution failed first
-      expect(execSync).not.toHaveBeenCalledWith(expect.stringContaining('inspect'), expect.anything());
+      expect(execFileSync).not.toHaveBeenCalled();
+    });
+
+    it('passes the container name as a literal argument, not shell-interpolated', () => {
+      vi.mocked(execSync).mockReturnValue('Docker version 24.0.0' as any);
+      vi.mocked(execFileSync).mockReturnValue('true\n' as any);
+      const trickyName = "wigolo; rm -rf / #'";
+      isContainerRunning(trickyName);
+      expect(execFileSync).toHaveBeenCalledWith(
+        'docker',
+        ['inspect', '--format', '{{.State.Running}}', '--', trickyName],
+        expect.anything(),
+      );
     });
   });
 
   describe('stopContainer', () => {
-    it('runs docker stop and rm when docker is available', () => {
+    it('runs docker stop then rm when docker is available', () => {
       vi.mocked(execSync).mockReturnValue('Docker version 24.0.0' as any);
       stopContainer('wigolo-searxng');
-      expect(execSync).toHaveBeenCalledWith(
-        expect.stringMatching(/^docker stop .* && docker rm /),
-        expect.anything(),
-      );
+      expect(execFileSync).toHaveBeenCalledWith('docker', ['stop', '--', 'wigolo-searxng'], expect.anything());
+      expect(execFileSync).toHaveBeenCalledWith('docker', ['rm', '--', 'wigolo-searxng'], expect.anything());
     });
 
-    it('runs podman stop and rm when only podman is available', () => {
+    it('runs podman stop then rm when only podman is available', () => {
       vi.mocked(execSync).mockImplementation((cmd) => {
-        const s = String(cmd);
-        if (s.startsWith('docker')) throw new Error('docker: command not found');
+        if (String(cmd).startsWith('docker')) throw new Error('docker: command not found');
         return 'podman version 4.9.0' as any;
       });
       stopContainer('wigolo-searxng');
-      expect(execSync).toHaveBeenCalledWith(
-        expect.stringMatching(/^podman stop .* && podman rm /),
-        expect.anything(),
-      );
+      expect(execFileSync).toHaveBeenCalledWith('podman', ['stop', '--', 'wigolo-searxng'], expect.anything());
+      expect(execFileSync).toHaveBeenCalledWith('podman', ['rm', '--', 'wigolo-searxng'], expect.anything());
     });
 
     it('does nothing when no docker-compatible CLI is found', () => {
       vi.mocked(execSync).mockImplementation(() => { throw new Error('not found'); });
       stopContainer('wigolo-searxng');
-      expect(execSync).not.toHaveBeenCalledWith(expect.stringContaining('stop'), expect.anything());
+      expect(execFileSync).not.toHaveBeenCalled();
     });
   });
 
