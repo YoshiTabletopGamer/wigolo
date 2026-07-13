@@ -125,6 +125,22 @@ export GEMINI_API_KEY=<your-key>      # free from https://aistudio.google.com/ap
 
 Any provider works — use `anthropic` + `ANTHROPIC_API_KEY`, `openai` + `OPENAI_API_KEY`, or `groq` + `GROQ_API_KEY`. To stay fully local and keyless, set `WIGOLO_LLM_PROVIDER=ollama` (or a local server URL) instead. Gemini is suggested because its free tier is more than enough for wigolo.
 
+### Run with Docker
+
+A prebuilt image runs the MCP server without installing Node yourself. It bundles the browser engine and on-device models, and the default command is the stdio MCP server.
+
+```bash
+docker run -i --rm -v wigolo-data:/data ghcr.io/knockoutez/wigolo
+```
+
+The `-i` flag keeps stdin open for the MCP protocol, and the volume persists the local cache and models across runs (first run downloads the models). Wire it into Claude Code:
+
+```bash
+claude mcp add wigolo --scope user -- docker run -i --rm -v wigolo-data:/data ghcr.io/knockoutez/wigolo
+```
+
+Any MCP client works the same way — set `command` to `docker` and `args` to the run flags above. The image is also published to Docker Hub as `knockoutez/wigolo`.
+
 ## The tools
 
 | Tool | What it does |
